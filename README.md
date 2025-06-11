@@ -30,10 +30,10 @@ pip install -e .
 <table>
     <tbody>
         <tr>
-            <td style="width: 25%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Fluid_Logo.html"><img src="examples/compressible/videos/rayleighTaylor.gif"></a></td>
-            <td style="width: 25%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Wake_Flow.html"><img src="examples/compressible/videos/kevin_helmholtz.png"></a></td>
-            <td style="width: 25%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Lid_Driven_Cavity.html"><img src="examples/compressible/sod_1D.png"></a></td>
-            <td style="width: 25%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Taylor_Green.html"><img src="examples/compressible/videos/sedov_2D.png"></a></td>
+            <td style="width: 25%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/compressible/rayleighTaylor2d.ipynb"><img src="examples/compressible/videos/rayleighTaylor.gif"></a></td>
+            <td style="width: 25%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/compressible/KevinHelmHoltz.ipynb"><img src="examples/compressible/videos/kevin_helmholtz.png"></a></td>
+            <td style="width: 25%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/compressible/sod_1d.ipynb"><img src="examples/compressible/sod_1D.png"></a></td>
+            <td style="width: 25%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/compressible/sedov_2d.ipynb"><img src="examples/compressible/videos/sedov_2D.png"></a></td>
         </tr>
         <tr>
             <td align="center">Rayleigh-Taylor Instability</td>
@@ -51,9 +51,9 @@ More examples can be found under examples/compressible
 <table>
     <tbody>
         <tr>
-            <td style="width: 34%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Fluid_Logo.html"><img src="examples/weaklyCompressible/scripts/videos/05_taylorGreenVortex_2.png"></a></td>
-            <td style="width: 33%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Lid_Driven_Cavity.html"><img src="examples/weaklyCompressible/scripts/videos/03_rotatingSquarePatch.png"></a></td>
-            <td style="width: 33%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Taylor_Green.html"><img src="examples/weaklyCompressible/scripts/videos/09_lidDrivenCavity.png"></a></td>
+            <td style="width: 34%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/weaklyCompressible/05_TGV.ipynb"><img src="examples/weaklyCompressible/scripts/videos/05_taylorGreenVortex_2.png"></a></td>
+            <td style="width: 33%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/weaklyCompressible/03_RotatingSquarePatch.ipynb"><img src="examples/weaklyCompressible/scripts/videos/03_rotatingSquarePatch.png"></a></td>
+            <td style="width: 33%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/weaklyCompressible/09_LDC.ipynb"><img src="examples/weaklyCompressible/scripts/videos/09_lidDrivenCavity.png"></a></td>
         </tr>
         <tr>
             <td align="center">Taylor Green Vortex</td>
@@ -61,9 +61,9 @@ More examples can be found under examples/compressible
             <td align="center">Lid-Driven Cavity</td>
         </tr>
         <tr>
-            <td style="width: 33%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Fluid_Logo.html"><img src="examples/weaklyCompressible/scripts/videos/13_DrivenSquare.png"></a></td>
-            <td style="width: 34%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Wake_Flow.html"><img src="examples/weaklyCompressible/scripts/videos/18_flowPastSphere.png"></a></td>
-            <td style="width: 33%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Taylor_Green.html"><img src="examples/weaklyCompressible/scripts/videos/15_damBreak.png"></a></td>
+            <td style="width: 33%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/weaklyCompressible/13_DrivenSquare.ipynb"><img src="examples/weaklyCompressible/scripts/videos/13_DrivenSquare.png"></a></td>
+            <td style="width: 34%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/weaklyCompressible/18_flowPastObstacle.ipynb"><img src="examples/weaklyCompressible/scripts/videos/18_flowPastSphere.png"></a></td>
+            <td style="width: 33%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/examples/weaklyCompressible/15_Dambreak.ipynb"><img src="examples/weaklyCompressible/scripts/videos/15_damBreak.png"></a></td>
         </tr>
         <tr>
             <td align="center">Driven Square</td>
@@ -80,7 +80,7 @@ More examples can be found under examples/weaklyCompressible
 <table>
     <tbody>
         <tr>
-            <td style="width: 40%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Fluid_Logo.html"><img src="examples/videos/05_taylorGreenVortex_2.gif"></a></td>
+            <td style="width: 40%;"><img src="examples/videos/05_taylorGreenVortex_2.gif"></td>
             <td style="width: 60%;"></td>
         </tr>
         <tr>
@@ -96,7 +96,7 @@ diffSPH can also be used to simulate a variety of other PDEs such as the wave eq
 <table>
     <tbody>
         <tr>
-            <td style="width: 40%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Fluid_Logo.html"><img src="examples/rk4.png"></a></td>
+            <td style="width: 40%;"><img src="examples/waveEqn2.gif"></td>
             <td style="width: 60%;"></td>
         </tr>
         <tr>
@@ -112,10 +112,10 @@ diffSPH is meant as a framework for differentiable problem solving and supports 
 <table>
     <tbody>
         <tr>
-            <td style="width: 25%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Fluid_Logo.html"><img src="examples/noisyDistributionShift2D_gradient.png"></a></td>
-            <td style="width: 25%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Wake_Flow.html"><img src="examples/gammaOptim.png"></a></td>
-            <td style="width: 25%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Lid_Driven_Cavity.html"><img src="examples/waveOptimized.png"></a></td>
-            <td style="width: 25%;"><a href="https://tum-pbs.github.io/PhiFlow/examples/grids/Taylor_Green.html"><img src="examples/waveEqn_wUnroll.png"></a></td>
+            <td style="width: 25%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/gradients/autoShift.ipynb"><img src="examples/noisyDistributionShift2D_gradient.png"></a></td>
+            <td style="width: 25%;"><img src="examples/gammaOptim.png"></td>
+            <td style="width: 25%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/waveEquation/waveEqn.ipynb"><img src="examples/waveOptimized.png"></a></td>
+            <td style="width: 25%;"><a href="https://github.com/tum-pbs/diffSPH/blob/main/waveEquation/waveEqnInTheLoop.ipynb"><img src="examples/waveEqn_wUnroll.png"></a></td>
         </tr>
         <tr>
             <td align="center">Loss-based Physics</td>
@@ -158,7 +158,7 @@ $$
 \hat{k} &= k + \alpha e\\
 \frac{dx}{dt} &= u&\\
 m \frac{du}{dt} &= -\hat{k} x &- c u\\
-\frac{de}{dt} &= \beta \operatorname{sgn}(u) u^2 &- \gamma e
+\frac{de}{dt} &= \beta \text{sgn}(u) u^2 &- \gamma e
 \end{aligned}
 $$
 <table>
@@ -185,15 +185,15 @@ There have been a variety of datasets already generated with diffSPH, including:
     <tbody>
         <tr>
             <td style="width: 50%;"><a href="https://huggingface.co/datasets/thuerey-group/SFBC_dataset_II"><img src="https://huggingface.co/datasets/thuerey-group/SFBC_dataset_II/resolve/main/data.png"></a></td>
-            <td style="width: 50%;"><a href="https://huggingface.co/datasets/Wi-Re/wcsph_flows"><img src="https://huggingface.co/datasets/Wi-Re/wcsph_flows/resolve/main/images/output_none_128x2x1.0x3x0_2024_11_03-10_29_52.gif"></a></td>
+            <td style="width: 50%;"><a href="https://huggingface.co/datasets/Wi-Re/wcsph_flows"><img src="examples/periodicDS.png"></a></td>
         </tr>
         <tr>
             <td align="center">SFBC Test Case II</td>
             <td align="center">Periodic BCs</td>
         </tr>
         <tr>
-            <td style="width: 50%;"><a href="https://huggingface.co/datasets/Wi-Re/wcsph_flows_no_slip"><img src="https://huggingface.co/datasets/Wi-Re/wcsph_flows_no_slip/resolve/main/images/output_zero_wObstacle_TGV_128x2x2.0_2024_11_04-15_09_03.gif"></a></td>
-            <td style="width: 50%;"><a href="https://huggingface.co/datasets/Wi-Re/wcsph_flows_free_slip"><img src="https://huggingface.co/datasets/Wi-Re/wcsph_flows_free_slip/resolve/main/images/output_free-slip_wObstacle_TGV_128x2x2.0_2024_11_04-14_58_32.gif"></a></td>
+            <td style="width: 50%;"><a href="https://huggingface.co/datasets/Wi-Re/wcsph_flows_no_slip"><img src="examples/noSlip.png"></a></td>
+            <td style="width: 50%;"><a href="https://huggingface.co/datasets/Wi-Re/wcsph_flows_free_slip"><img src="examples/freeSlip.png"></a></td>
         </tr>
         <tr>
             <td align="center">No-Slip</td>
@@ -203,8 +203,6 @@ There have been a variety of datasets already generated with diffSPH, including:
 </table>
 
 
-
- 
 ## Publications
 
 So far diffSPH has been used in the following publications:
