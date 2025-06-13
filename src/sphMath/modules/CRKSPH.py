@@ -10,7 +10,6 @@ from sphMath.sphOperations.shared import get_i, get_j, mod_distance, getSupport,
 from sphMath.modules.eos import idealGasEOS
 from sphMath.neighborhood import NeighborhoodInformation
 from sphMath.integrationSchemes.util import integrateQ
-from sphMath.util import scatter_max
 
 from sphMath.modules.compressible import CompressibleState
 from sphMath.operations import sph_op, SPHOperation

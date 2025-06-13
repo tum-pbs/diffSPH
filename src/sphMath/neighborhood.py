@@ -1,12 +1,49 @@
-from torchCompactRadius.util import PointCloud, DomainDescription, SparseCOO, SparseCSR
-from torchCompactRadius.compactHashing.datastructure import CompactHashMap
-from torchCompactRadius import volumeToSupport, radiusSearch, neighborSearchExisting
+# from sphMath.util import PointCloud, DomainDescription, SparseCOO, SparseCSR
 
-import torchCompactRadius
+from dataclasses import dataclass
+import torch
+
+try:
+    # raise ImportError("Debug Test")
+    import torchCompactRadius
+    from torchCompactRadius.compactHashing.datastructure import CompactHashMap
+    from torchCompactRadius import radiusSearch, neighborSearchExisting
+    from torchCompactRadius.util import PointCloud, DomainDescription, SparseCOO, SparseCSR
+
+except ImportError as e:
+    # raise e
+    print("torchCompactRadius not found, using fallback implementations.")
+
+    from sphMath.neighborhoodFallback.fallback import CompactHashMap, radiusSearch, PointCloud, DomainDescription, SparseCOO, SparseCSR
+
 from typing import Union, Optional
 import torch
 from sphMath.util import ParticleSet, mod
 from torch.utils.checkpoint import checkpoint
+import numpy as np
+
+@torch.jit.script
+def volumeToSupport(volume : float, targetNeighbors : int, dim : int):
+    """
+    Calculates the support radius based on the given volume, target number of neighbors, and dimension.
+
+    Parameters:
+    volume (float): The volume of the support region.
+    targetNeighbors (int): The desired number of neighbors.
+    dim (int): The dimension of the space.
+
+    Returns:
+    torch.Tensor: The support radius.
+    """
+    if dim == 1:
+        # N_h = 2 h / v -> h = N_h * v / 2
+        return targetNeighbors * volume / 2
+    elif dim == 2:
+        # N_h = \pi h^2 / v -> h = \sqrt{N_h * v / \pi}
+        return torch.sqrt(targetNeighbors * volume / np.pi)
+    else:
+        # N_h = 4/3 \pi h^3 / v -> h = \sqrt[3]{N_h * v / \pi * 3/4}
+        return torch.pow(targetNeighbors * volume / np.pi * 3 /4, 1/3)
 
 # from sphMath.operations import mod
 
@@ -46,6 +83,7 @@ def searchNeighbors(input_a: Union[ParticleSet,PointCloud], input_b: Optional[Un
         cooAdjacency, datastructure = radiusSearch(convertSet(input_a), convertSet(input_b), domain = domain, mode = mode, returnStructure=True, algorithm=algorithm)
     elif isinstance(input_b, CompactHashMap):
         if algorithm == 'compact':
+            raise NotImplementedError('Compact algorithm not implemented for existing datastructure')
             row, col = neighborSearchExisting(convertSet(input_a), convertSet(input_b), domain = domain, mode = mode, returnStructure=True)
         else:
             raise ValueError('Cannot perform neighbor search with existing datastructure for non-compact algorithm')
@@ -77,7 +115,7 @@ class PrecomputedNeighborhood:
     
     
 @torch.jit.script
-@dataclass(slots = True)
+@dataclass#(slots = True)
 class SparseNeighborhood:
     row: torch.Tensor
     col: torch.Tensor
@@ -85,10 +123,10 @@ class SparseNeighborhood:
     numRows: int
     numCols: int
     
-    points_a: PointCloud
-    points_b: PointCloud
+    points_a: 'PointCloud'
+    points_b: 'PointCloud'
     
-    domain: DomainDescription
+    domain: 'DomainDescription'
     # values: Optional[PrecomputedNeighborhood] = None
 
 
@@ -592,7 +630,17 @@ def filterNeighborhoodByKind(particleState, sparseNeighborhood : SparseNeighborh
         domain = sparseNeighborhood.domain,
     )
 
-from torchCompactRadius.util import coo_to_csr
+import warnings
+try:
+    # raise ImportError("Debug Test")
+    import torchCompactRadius
+    from torchCompactRadius.util import SparseCOO, SparseCSR, PointCloud, DomainDescription, coo_to_csr, csr_to_coo
+except ImportError:
+    warnings.warn('Using fallback implementation for radius search.')
+    from sphMath.neighborhoodFallback.fallback import SparseCOO, SparseCSR, PointCloud, DomainDescription, coo_to_csr, csr_to_coo
+
+
+# from sphMath.util import coo_to_csr
 def coo_to_csrsc(coo: SparseCOO):
     return coo_to_csr(coo, isSorted=True), coo_to_csr(SparseCOO(coo.col, coo.row, numRows = coo.numCols, numCols = coo.numRows), isSorted=False)
 

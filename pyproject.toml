@@ -1,0 +1,44 @@
+[project]
+name = "diffSPH"
+version = "0.1.1"
+authors = [
+  { name="Rene Winchenbach", email="contact@fluids.dev" },
+]
+maintainers = [
+  { name="Rene Winchenbach", email="contact@fluids.dev" },
+]
+description = "A Fully differentiable SPH Solver."
+readme = "README.md"
+keywords = ["sph","radius","pytorch"]
+classifiers = [
+  # How mature is this project? Common values are
+  #   3 - Alpha
+  #   4 - Beta
+  #   5 - Production/Stable
+  "Development Status :: 4 - Beta",
+
+  # Indicate who your project is intended for
+  "Intended Audience :: Developers",
+
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "torch", "numpy"
+]
+license = {file = "LICENSE"}
+
+[project.urls]
+Repository = "https://github.com/tum-pbs/diffSPH"
+Issues = "https://github.com/tum-pbs/diffSPH"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"] # <-- this changed
+
+[tool.setuptools.package-data]
+"*" = ["*.*"] # <-- this changed

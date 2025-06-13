@@ -3,14 +3,27 @@ from scipy.interpolate import RegularGridInterpolator
 # from sphMath.noise import generateNoise 
 from torch.autograd import gradcheck
 import torch
+import warnings
 
-from torchCompactRadius.util import SparseCOO, SparseCSR, PointCloud, DomainDescription
+try:
+    # raise ImportError("Debug Test")
+    import torchCompactRadius
+    from torchCompactRadius.util import SparseCOO, SparseCSR, PointCloud, DomainDescription, coo_to_csr, csr_to_coo
+except ImportError:
+    # warnings.warn('Using fallback implementation for radius search.')
+    from sphMath.neighborhoodFallback.fallback import SparseCOO, SparseCSR, PointCloud, DomainDescription, coo_to_csr, csr_to_coo
+
+
+
 from typing import Optional, Tuple
 
 from typing import Union
+import warnings
 
 scatter_max_op = None
 try:
+    # raise ImportError("Debug Test")
+    import torchCompactRadius
     import torchCompactRadius_cuda
     scatter_max_op = torch.ops.torchCompactRadius_cuda.scatter_max
 except ImportError:
@@ -20,10 +33,14 @@ except Exception as e:
     raise e
 if scatter_max_op is None:
     try: 
+        # raise ImportError("Debug Test")
+        import torchCompactRadius
         import torchCompactRadius_cpu
+        # raise ImportError("Debug Test")
         scatter_max_op = torch.ops.torchCompactRadius_cpu.scatter_max
     except Exception as e:
-        raise e
+        # raise e
+        warnings.warn("No Implementation of scatter_max is available. CRKSPH and the Cullen Dehnen Viscosity Switch won't work.")
     
 # from sphMath.boundary import RigidBody
 def cloneOptionalTensor(T : Optional[torch.Tensor]):
@@ -63,6 +80,8 @@ def scatter_max(
         dim: int = -1,
         out: Optional[torch.Tensor] = None,
         dim_size: Optional[int] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    if scatter_max_op is None:
+        raise RuntimeError('No scatter_max operation available. Please install torchCompactRadius.')
     return scatter_max_op(src, index, dim, out, dim_size)
 
 

@@ -23,7 +23,7 @@ from sphMath.kernels import KernelType
 
 
     
-from sphMath.util import scatter_max, getSetConfig
+from sphMath.util import getSetConfig
 from sphMath.neighborhood import evalKernel, evalKernelGradient
 
 from sphMath.modules.compressible import verbosePrint
