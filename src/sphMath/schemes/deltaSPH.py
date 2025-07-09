@@ -134,9 +134,9 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
 
     with record_function("[deltaSPH] - 10 - Velocity Diffusion"):
         dvdt_diss = computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('fluid'), SupportScheme.Gather, config)
-        if torch.any(particles.kinds > 1):
-            with record_function("[deltaSPH] - 10 - Boundary Viscosity"):
-                dvdt_diss += computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config)
+        # if torch.any(particles.kinds > 1):
+            # with record_function("[deltaSPH] - 10 - Boundary Viscosity"):
+                # dvdt_diss += computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config)
         checkTensor(dvdt_diss, domain.min.dtype, domain.min.device, 'viscosity diffusion')
     
     with record_function("[deltaSPH] - 11 - Divergence"):
@@ -145,6 +145,14 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
 
     pressureAccel = computePressureForce(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
     checkTensor(pressureAccel, domain.min.dtype, domain.min.device, 'pressure acceleration')
+
+
+    # noGhost = neighbors.get('noghost')
+    # print(particles.kinds[noGhost[0].row].unique())
+    # print(particles.kinds[noGhost[0].col].unique())
+    # print('---------------------')
+
+
 
     with record_function("[deltaSPH] - 12 - Gravity"):
         gravityAccel = computeGravity(particles, config)
@@ -162,9 +170,17 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
 
     with record_function("[deltaSPH] - 13 - Dirchlet Update"):
         update = enforceDirichletUpdate(update, particles, config, SPHSystem.t, dt)
-    checkTensor(update.positions, domain.min.dtype, domain.min.device, 'position update (after Dirichlet update)')
-    checkTensor(update.velocities, domain.min.dtype, domain.min.device, 'velocity update (after Dirichlet update)')
-    checkTensor(update.densities, domain.min.dtype, domain.min.device, 'density update (after Dirichlet update)')
+    checkTensor(update.positions, domain.min.dtype, domain.min.device, 'position update (after Dirichlet update)', verbose = verbose)
+    checkTensor(update.velocities, domain.min.dtype, domain.min.device, 'velocity update (after Dirichlet update)', verbose = verbose)
+    checkTensor(update.densities, domain.min.dtype, domain.min.device, 'density update (after Dirichlet update)', verbose = verbose)
+
+    # drhodt_fluid = drhodt[particles.kinds == 0]
+    # drho_dt_diss_fluid = drhodt_diss[particles.kinds == 0]
+    # drhodt_boundary = drhodt[particles.kinds == 1]
+    # drho_dt_diss_boundary = drhodt_diss[particles.kinds == 1]
+
+    # print(f'[deltaSPH] - [Update] - drhodt: fluid {drhodt_fluid.min().item():.3e} - {drhodt_fluid.max().item():.3e} - boundary {drhodt_boundary.min().item():.3e} - {drhodt_boundary.max().item():.3e}')
+    # print(f'[deltaSPH] - [Update] - drho_dt_diss: fluid {drho_dt_diss_fluid.min().item():.3e} - {drho_dt_diss_fluid.max().item():.3e} - boundary {drho_dt_diss_boundary.min().item():.3e} - {drho_dt_diss_boundary.max().item():.3e}')
 
 # @torch.jit.script
 # @dataclass(slots = True)

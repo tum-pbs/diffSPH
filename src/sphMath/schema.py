@@ -87,8 +87,9 @@ def getSimulationScheme(
     if supportScheme is not None:
         if 'support' in schemeConfig:
             schemeConfig['support']['scheme'] = supportScheme
+            schemeConfig['support']['adaptiveHThreshold'] = 0.01
         else:
-            schemeConfig['support'] = {'scheme': supportScheme}
+            schemeConfig['support'] = {'scheme': supportScheme, 'adaptiveHThreshold': 0.01}
     if energyScheme is not None:
         schemeConfig['energyScheme'] = energyScheme.name
         

@@ -38,7 +38,7 @@ def buildPointCloud(nx, domain: DomainDescription = None, targetNeighbors = 16, 
         spaces.append(x)
         ns.append(nd + band * 2)
 
-    print(f'{shortEdge}: dxs: {dxs}, ns: {ns}, nx: {nx}')
+    # print(f'{shortEdge}: dxs: {dxs}, ns: {ns}, nx: {nx}')
 
 
 

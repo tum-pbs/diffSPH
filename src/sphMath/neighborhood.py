@@ -859,6 +859,7 @@ class NeighborhoodStates:
     fluidToBoundary: Optional[Tuple[int, int]]
     boundaryToBoundary: Optional[Tuple[int, int]]
     fluidToGhost: Optional[Tuple[int, int]]
+    noGhost: Tuple[int, int]
 
     # fluid_to_fluid_neighbors: SparseNeighborhood
     # fluid_to_fluid_kernelValues: PrecomputedNeighborhood
@@ -889,7 +890,8 @@ class NeighborhoodStates:
         elif which == 'fluidToGhost':
             return sliceNeighbors(self.neighbors, self.kernelValues, self.fluidToGhost)
         elif which == 'all' or which == 'normal' or which == 'noghost':
-            return self.neighbors, self.kernelValues
+            return sliceNeighbors(self.neighbors, self.kernelValues, self.noGhost)
+            # return self.neighbors, self.kernelValues
         else:
             raise ValueError(f'which = {which} not recognized')
         
@@ -1029,7 +1031,8 @@ def computeNeighborhoodStates(particles, sparseNeighborhood_, mode_str, kernel, 
             boundaryToFluid = boundaryToFluidIndices,
             fluidToBoundary = fluidToBoundaryIndices,
             boundaryToBoundary = boundaryToBoundaryIndices,
-            fluidToGhost = fluidToGhostIndices
+            fluidToGhost = fluidToGhostIndices,
+            noGhost= (0, boundaryToBoundaryIndices[-1]),
         )
 
 def evaluateNeighborhood(particles,

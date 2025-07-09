@@ -101,20 +101,20 @@ def computeDensityDeltaTerm(
     gradRhoTerm = torch.zeros_like(particles_a.densities)
     densityTerm = torch.zeros_like(particles_a.densities)
 
-    if diffusionScheme == 'denormalizedOnly':
-        gradRhoTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, 'divergence', gradientMode = 'summation', quantity=gradRho)
-    elif diffusionScheme == 'deltaOnly':
-        gradRhoTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, 'divergence', gradientMode = 'summation', quantity=gradRho_L)
-    elif diffusionScheme == 'densityOnly':
-        densityTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, operation = 'laplacian', laplaceMode = 'other', quantity=particles_a.densities)
-    elif diffusionScheme == 'denormalized':
-        gradRhoTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, 'divergence', gradientMode = 'summation', quantity=gradRho)
-        densityTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, operation = 'laplacian', laplaceMode = 'other', quantity=particles_a.densities)
-    elif diffusionScheme == 'deltaSPH':
-        gradRhoTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, 'divergence', gradientMode = 'summation', quantity=gradRho_L)
-        densityTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, operation = 'laplacian', laplaceMode = 'other', quantity=particles_a.densities)
-    else:
-        raise NotImplementedError(f'Diffusion scheme {diffusionScheme} not implemented')
+    # if diffusionScheme == 'denormalizedOnly':
+    gradRhoTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, 'divergence', gradientMode = 'summation', quantity=gradRho)
+    # elif diffusionScheme == 'deltaOnly':
+    #     gradRhoTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, 'divergence', gradientMode = 'summation', quantity=gradRho_L)
+    # elif diffusionScheme == 'densityOnly':
+    #     densityTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, operation = 'laplacian', laplaceMode = 'other', quantity=particles_a.densities)
+    # elif diffusionScheme == 'denormalized':
+    #     gradRhoTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, 'divergence', gradientMode = 'summation', quantity=gradRho)
+    #     densityTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, operation = 'laplacian', laplaceMode = 'other', quantity=particles_a.densities)
+    # elif diffusionScheme == 'deltaSPH':
+    #     gradRhoTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, 'divergence', gradientMode = 'summation', quantity=gradRho_L)
+    #     densityTerm = sph_op(particles_a, particles_b, domain, kernel, neighborhood, supportScheme, operation = 'laplacian', laplaceMode = 'other', quantity=particles_a.densities)
+    # else:
+    #     raise NotImplementedError(f'Diffusion scheme {diffusionScheme} not implemented')
     
     scalingFactor = diffusionDelta * particles_a.supports / kernel.kernelScale(domain.dim) * c_s
 

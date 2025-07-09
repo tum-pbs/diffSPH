@@ -68,7 +68,7 @@ def computePressureForce(
                 operation=Operation.Gradient,
                 gradientMode = GradientMode.Symmetric,
                 supportScheme = supportScheme,
-                correctionTerms=[KernelCorrectionScheme.gradH] if particles.omega is not None else None
+                # correctionTerms=[KernelCorrectionScheme.gradH] if particles.omega is not None else None
                 ) / particles.densities.view(-1,1)
         else:
             raise ValueError(f'Unknown pressure term: {pressureTerm}')
@@ -82,7 +82,7 @@ def computePressureForce(
             operation=Operation.Gradient,
             gradientMode = GradientMode.Naive,
             supportScheme = supportScheme,
-            correctionTerms=[KernelCorrectionScheme.gradH] if particles.omega is not None else None
+            # correctionTerms=[KernelCorrectionScheme.gradH] if particles.omega is not None else None
             ) / particles.densities.view(-1,1)
 
 

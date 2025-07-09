@@ -466,7 +466,7 @@ def generateSod1D(nx, samplingRatio, leftState, rightState, gamma, wrappedKernel
     # neighborhood, sparseNeighborhood = buildNeighborhood(particles, particles, domain, verletScale= 1.0, mode ='gather')
     # actualNeighbors = filterNeighborhood(sparseNeighborhood)
 
-    config = {'targetNeighbors': targetNeighbors, 'domain': domain, 'support': {'iterations': 16, 'scheme': 'Monaghan'}, 'neighborhood': {'algorithm': 'compact'}}
+    config = {'targetNeighbors': targetNeighbors, 'domain': domain, 'support': {'iterations': 16, 'scheme': 'Monaghan', 'adaptiveHThreshold':0.01}, 'neighborhood': {'algorithm': 'compact'}}
 
     rho = computeDensity(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
 

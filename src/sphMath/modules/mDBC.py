@@ -180,6 +180,8 @@ def mDBCDensity_(particles: WeaklyCompressibleState,
         
                 mergedDensitities = particles.densities.clone()
                 mergedDensitities[bIndices] = boundaryDensity[bIndices]
+
+                # mergedDensitities[bIndices] = rho0
         
                 assert torch.all(mergedDensitities[particles.kinds == 0] == particles.densities[particles.kinds == 0])
         return mergedDensitities, boundaryDensity
