@@ -1,7 +1,7 @@
 ![](logov1.png)
 <!-- # diffSPH - A Framework for differentiable SPH Simulations -->
 
-diffSPH is an open-source Smoothed Particle Hydrodynamics simulation framework built for adjoint problem solving and machine learning applications. diffSPH is written mostly in Python using PyTorch but also supports C++/CUDA extensions. The fundamentally differentiable nature of diffSPH make it a versatile basis for many different applications of SPH. Stay tunes for more details on the applications and design of diffSPH!
+diffSPH is an open-source Smoothed Particle Hydrodynamics simulation framework built for adjoint problem solving and machine learning applications. diffSPH is written mostly in Python using PyTorch but also supports C++/CUDA extensions. The fundamentally differentiable nature of diffSPH make it a versatile basis for many different applications of SPH. Stay tunes for more details on the applications and design of diffSPH! This is the solver at [https://diffsph.fluids.dev/](https://diffsph.fluids.dev/) .
 
 ## Installation
 
