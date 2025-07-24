@@ -250,27 +250,56 @@ def mapQuantity(inputQuantity : torch.Tensor, mapping: str):
     return quantity
 
 
-def filterParticles(particles: Union[ParticleSet, ParticleSetWithQuantity], which:str = 'fluid'):
+def filterParticles(particles: Union[ParticleSet, ParticleSetWithQuantity], which:str = 'fluid', batch: Optional[int] = None):
     if hasattr(particles, 'kinds'):
-        if which == 'fluid':
-            return ParticleSetWithQuantity(
-                particles.positions[particles.kinds == 0],
-                particles.supports[particles.kinds == 0],
-                particles.masses[particles.kinds == 0],
-                particles.densities[particles.kinds == 0],
-                particles.quantities[particles.kinds == 0] if hasattr(particles, 'quantities') else None
-            )
-        elif which == 'boundary':
-            return ParticleSetWithQuantity(
-                particles.positions[particles.kinds == 1],
-                particles.supports[particles.kinds == 1],
-                particles.masses[particles.kinds == 1],
-                particles.densities[particles.kinds == 1],
-                particles.quantities[particles.kinds == 1] if hasattr(particles, 'quantities') else None
-            )
+        if batch is not None:
+            if which == 'fluid':
+                return ParticleSetWithQuantity(
+                    particles.positions[(particles.kinds == 0) & (particles.batches == batch)],
+                    particles.supports[(particles.kinds == 0) & (particles.batches == batch)],
+                    particles.masses[(particles.kinds == 0) & (particles.batches == batch)],
+                    particles.densities[(particles.kinds == 0) & (particles.batches == batch)],
+                    particles.quantities[(particles.kinds == 0) & (particles.batches == batch)] if hasattr(particles, 'quantities') else None,
+                    # batches = particles.batches[(particles.kinds == 0) & (particles.batches == batch)]
+                )
+            elif which == 'boundary':
+                return ParticleSetWithQuantity(
+                    particles.positions[(particles.kinds == 1) & (particles.batches == batch)],
+                    particles.supports[(particles.kinds == 1) & (particles.batches == batch)],
+                    particles.masses[(particles.kinds == 1) & (particles.batches == batch)],
+                    particles.densities[(particles.kinds == 1) & (particles.batches == batch)],
+                    particles.quantities[(particles.kinds == 1) & (particles.batches == batch)] if hasattr(particles, 'quantities') else None,
+                    # batches = particles.batches[(particles.kinds == 1) & (particles.batches == batch)]
+                )
         else:
-            return particles
+            if which == 'fluid':
+                return ParticleSetWithQuantity(
+                    particles.positions[particles.kinds == 0],
+                    particles.supports[particles.kinds == 0],
+                    particles.masses[particles.kinds == 0],
+                    particles.densities[particles.kinds == 0],
+                    particles.quantities[particles.kinds == 0] if hasattr(particles, 'quantities') else None
+                )
+            elif which == 'boundary':
+                return ParticleSetWithQuantity(
+                    particles.positions[particles.kinds == 1],
+                    particles.supports[particles.kinds == 1],
+                    particles.masses[particles.kinds == 1],
+                    particles.densities[particles.kinds == 1],
+                    particles.quantities[particles.kinds == 1] if hasattr(particles, 'quantities') else None
+                )
+            else:
+                return particles
     else:
+        if batch is not None:
+            return ParticleSetWithQuantity(
+                particles.positions[particles.batches == batch],
+                particles.supports[particles.batches == batch],
+                particles.masses[particles.batches == batch],
+                particles.densities[particles.batches == batch],
+                particles.quantities[particles.batches == batch] if hasattr(particles, 'quantities') else None,
+                # batches = particles.batches[particles.batches == batch]
+            )
         if which == 'fluid':
             return particles
         else:
@@ -279,7 +308,46 @@ def filterParticles(particles: Union[ParticleSet, ParticleSetWithQuantity], whic
 from sphMath.kernels import KernelType, SPHKernel, getSPHKernelv2
 from sphMath.operations import sph_op
 from sphMath.neighborhood import buildNeighborhood, filterNeighborhoodByKind
-from typing import Union, Optional, Tuple
+from typing import Union, Optional, Tuple, List
+
+def buildRotationMatrix(angles : List[float], dim: int, device: torch.device = None, dtype: torch.dtype = None):
+    if dim == 1:
+        return torch.tensor([[1.0]], device=device, dtype=dtype)
+    elif dim == 2:
+        return torch.tensor([[torch.cos(angles), -torch.sin(angles)],
+                             [torch.sin(angles), torch.cos(angles)]], device=device, dtype=dtype)
+    elif dim == 3:
+        angle_phi = angles[0]
+        angle_theta = angles[1]
+        return torch.tensor([
+            [torch.cos(angle_phi) * torch.sin(angle_theta), -torch.sin(angle_phi), torch.cos(angle_phi) * torch.cos(angle_theta)],
+            [torch.sin(angle_phi) * torch.sin(angle_theta), torch.cos(angle_phi), torch.sin(angle_phi) * torch.cos(angle_theta)],
+            [torch.cos(angle_theta), 0, -torch.sin(angle_theta)]
+        ], device=device, dtype=dtype)
+    else:
+        raise ValueError(f"Unsupported dimension: {dim}")
+    
+def filterBatchFluid(quant, kinds, particles, batch: Optional[int] = None):
+    if batch is not None:
+        return quant[particles.batches[kinds == 0] == batch]
+    return quant
+def filterBatchBoundary(quant, kinds, particles, batch: Optional[int] = None):
+    if batch is not None:
+        return quant[particles.batches[kinds == 1] == batch]
+    return quant
+
+def filterBatchParticles(particles, batch: Optional[int] = None):
+    if batch is not None:
+        return ParticleSetWithQuantity(
+            particles.positions[particles.batches == batch],
+            particles.supports[particles.batches == batch],
+            particles.masses[particles.batches == batch],
+            particles.densities[particles.batches == batch],
+            particles.quantities[particles.batches == batch] if hasattr(particles, 'quantities') else None,
+            batches = particles.batches[particles.batches == batch]
+        )
+    return particles
+
 def visualizeParticles(    
     fig, axis,
     particles           : Union[ParticleSet, ParticleSetWithQuantity],
@@ -322,6 +390,7 @@ def visualizeParticles(
     plotDomain          : bool = True,
 
     title               : Optional[str] = None,
+    batch: Optional[int] = None,
 ):
     domain_ = DomainDescription(
         min = domain.min.cpu().detach(),
@@ -329,6 +398,12 @@ def visualizeParticles(
         periodic = domain.periodic.cpu().detach(),
         dim = domain.dim
     )
+    if hasattr(domain, 'angles'):
+        rotMat = buildRotationMatrix(torch.tensor(domain.angles, dtype = domain.min.dtype, device = domain.min.device), domain.dim, device=domain.min.device, dtype=domain.min.dtype)
+        invRotMat = rotMat.inverse()
+    else:
+        rotMat = None
+        invRotMat = None
 
     # Set up the axis
     eps = (domain_.max - domain_.min) * domainEpsilon
@@ -342,23 +417,78 @@ def visualizeParticles(
     if title is not None:
         axis.set_title(title)
 
-    fluidParticles = filterParticles(particles, which = 'fluid')
-    boundaryParticles = filterParticles(particles, which = 'boundary')
+    fluidParticles = filterParticles(particles, which = 'fluid', batch = batch)
+    boundaryParticles = filterParticles(particles, which = 'boundary', batch = batch)
+
+    # fluidParticles = filterBatchParticles(fluidParticles, batch)   
+    # if boundaryParticles is not None:
+    #     boundaryParticles = filterBatchParticles(boundaryParticles, batch)
+
+    # fluidParticles = filterBatch(fluidParticles, particles, batch)
+
+    if rotMat is not None:
+        fluidParticles = fluidParticles._replace(positions = torch.einsum('ij, ni->nj', invRotMat, fluidParticles.positions))
+    if boundaryParticles is not None and rotMat is not None:
+        boundaryParticles = boundaryParticles._replace(positions = torch.einsum('ij, ni->nj', invRotMat, boundaryParticles.positions))
 
     fluidQuantity = fluidParticles.quantities if isinstance(fluidParticles, ParticleSetWithQuantity) else None
     boundaryQuantity = boundaryParticles.quantities if isinstance(boundaryParticles, ParticleSetWithQuantity) else None
 
+
     if quantity is not None:
+        numParticlesTotal = particles.positions.shape[0]
+        numFluidParticles = particles.positions[particles.kinds == 0].shape[0]
+        numBoundaryParticles = numParticlesTotal - numFluidParticles
+
+        numFluidParticlesInBatch = fluidParticles.positions.shape[0]
+        numBoundaryParticlesInBatch = boundaryParticles.positions.shape[0] if boundaryParticles is not None else 0
+        numParticlesInBatch = numFluidParticlesInBatch + numBoundaryParticlesInBatch
+
+
         if isinstance(quantity, tuple):
+            # print('Quantity is a tuple, separating fluid and boundary quantities')
             fluidQuantity = quantity[0]
             boundaryQuantity = quantity[1] if boundaryParticles is not None else None
+
+            if batch is not None:
+                if fluidQuantity.shape[0] == numFluidParticles:
+                    # print(f'Filtering fluid quantity for batch {batch} with {numFluidParticles} particles')
+                    fluidQuantity = fluidQuantity[particles.kinds[particles.batches == batch] == 0]
+                if boundaryQuantity is not None and boundaryQuantity.shape[0] == numBoundaryParticles:
+                    # print(f'Filtering boundary quantity for batch {batch} with {numBoundaryParticles} particles')
+                    boundaryQuantity = boundaryQuantity[particles.kinds[particles.batches == batch] == 1]
+
         else:
+            # print('Quantity is a single tensor, filtering based on particle kinds')
             if hasattr(particles, 'kinds'):
-                fluidQuantity = quantity[particles.kinds == 0]
-                boundaryQuantity = quantity[particles.kinds == 1] if boundaryParticles is not None else None
+                # print('Particles have kinds attribute, filtering based on kinds')
+                if batch is not None:
+                    if quantity.shape[0] == numParticlesInBatch:
+                        # print(f'Filtering quantity for batch [quantity is batch sized]')
+                        fluidQuantity = quantity[particles.kinds[particles.batches == batch] == 0]
+                        boundaryQuantity = quantity[particles.kinds[particles.batches == batch] == 1] if boundaryParticles is not None else None
+                    elif quantity.shape[0] == numParticlesTotal:
+                        # print(f'Filtering quantity for batch [quantity is total sized]')
+                        fluidQuantity = quantity[torch.logical_and(particles.kinds == 0, particles.batches == batch)]
+                        boundaryQuantity = quantity[torch.logical_and(particles.kinds == 1, particles.batches == batch)] if boundaryParticles is not None else None
+                else:
+                    fluidQuantity = quantity[particles.kinds == 0]
+                    boundaryQuantity = quantity[particles.kinds == 1] if boundaryParticles is not None else None
             else:
                 fluidQuantity = quantity
                 boundaryQuantity = quantity if boundaryParticles is not None else None
+                if batch is not None:
+                    if fluidQuantity.shape[0] == numParticlesTotal:
+                        fluidQuantity = fluidQuantity[particles.batches == batch]
+                    if boundaryQuantity is not None and boundaryQuantity.shape[0] == numParticlesTotal:
+                        boundaryQuantity = boundaryQuantity[particles.batches == batch]
+                
+
+    if rotMat is not None and len(fluidQuantity.shape) == 2:
+        if fluidQuantity is not None and fluidQuantity.shape[1] == fluidParticles.positions.shape[1]:
+            fluidQuantity = torch.einsum('ij, ni->nj', invRotMat, fluidQuantity)
+        if boundaryQuantity is not None and boundaryQuantity.shape[1] == boundaryParticles.positions.shape[1]:
+            boundaryQuantity = torch.einsum('ij, ni->nj', invRotMat, boundaryQuantity)
 
     if not gridVisualization:
         if which == 'fluid' and fluidQuantity is None:
@@ -427,7 +557,19 @@ def visualizeParticles(
                 cb = fig.colorbar(sc, ax=axis)
         # return
     else:
-        grid, interpolated = mapToGrid(fluidParticles, mappedQuantity, domain, kernel, gridResolution)
+        if which == 'fluid':
+            grid, interpolated = mapToGrid(fluidParticles, mappedQuantity, domain, kernel, gridResolution)
+        elif which == 'boundary':
+            grid, interpolated = mapToGrid(boundaryParticles, boundaryQuantity, domain, kernel, gridResolution)
+        else:
+            mergedParticles = ParticleSetWithQuantity(
+                positions = torch.cat([fluidParticles.positions, boundaryParticles.positions], dim = 0),
+                supports = torch.cat([fluidParticles.supports, boundaryParticles.supports], dim = 0),
+                masses = torch.cat([fluidParticles.masses, boundaryParticles.masses], dim = 0),
+                densities = torch.cat([fluidParticles.densities, boundaryParticles.densities], dim = 0),
+                quantities = torch.cat([mappedQuantity, boundaryQuantity], dim = 0)
+            )
+            grid, interpolated = mapToGrid(mergedParticles, mergedParticles.quantities, domain, kernel, gridResolution)
 
         sc = gridPlot(axis, grid, interpolated, cmap, scaling, linthresh, vmin, vmax, midPoint)
         if cbar:
@@ -515,7 +657,8 @@ def visualizeParticles(
         'streamPlot': streamPlot,
         'scatterPlot': sc,
         'boundaryScatterPlot': scBoundary,
-        'colorBar': cb
+        'colorBar': cb,
+        'batch': batch
 
     }
 
@@ -564,6 +707,7 @@ def updatePlot(plotState, particles: Union[ParticleSet, ParticleSetWithQuantity]
     scBoundary = plotState['boundaryScatterPlot']
     cb = plotState['colorBar']
     streamPlot = plotState['streamPlot']
+    batch = plotState['batch']
 
     domain_ = DomainDescription(
         min = domain.min.cpu().detach(),
@@ -571,6 +715,12 @@ def updatePlot(plotState, particles: Union[ParticleSet, ParticleSetWithQuantity]
         periodic = domain.periodic.cpu().detach(),
         dim = domain.dim
     )
+    if hasattr(domain, 'angles'):
+        rotMat = buildRotationMatrix(torch.tensor(domain.angles, dtype = domain.min.dtype, device = domain.min.device), domain.dim, device=domain.min.device, dtype=domain.min.dtype)
+        invRotMat = rotMat.inverse()
+    else:
+        rotMat = None
+        invRotMat = None
 
     # Set up the axis
     eps = (domain_.max - domain_.min) * domainEpsilon
@@ -584,25 +734,78 @@ def updatePlot(plotState, particles: Union[ParticleSet, ParticleSetWithQuantity]
     if title is not None:
         axis.set_title(title)
 
-    fluidParticles = filterParticles(particles, which = 'fluid')
-    boundaryParticles = filterParticles(particles, which = 'boundary')
-    
-    # print(fluidParticles.positions.shape)
+    fluidParticles = filterParticles(particles, which = 'fluid', batch = batch)
+    boundaryParticles = filterParticles(particles, which = 'boundary', batch = batch)
+
+    # fluidParticles = filterBatchParticles(fluidParticles, batch)   
+    # if boundaryParticles is not None:
+    #     boundaryParticles = filterBatchParticles(boundaryParticles, batch)
+
+    # fluidParticles = filterBatch(fluidParticles, particles, batch)
+
+    if rotMat is not None:
+        fluidParticles = fluidParticles._replace(positions = torch.einsum('ij, ni->nj', invRotMat, fluidParticles.positions))
+    if boundaryParticles is not None and rotMat is not None:
+        boundaryParticles = boundaryParticles._replace(positions = torch.einsum('ij, ni->nj', invRotMat, boundaryParticles.positions))
 
     fluidQuantity = fluidParticles.quantities if isinstance(fluidParticles, ParticleSetWithQuantity) else None
     boundaryQuantity = boundaryParticles.quantities if isinstance(boundaryParticles, ParticleSetWithQuantity) else None
 
+
     if quantity is not None:
+        numParticlesTotal = particles.positions.shape[0]
+        numFluidParticles = particles.positions[particles.kinds == 0].shape[0]
+        numBoundaryParticles = numParticlesTotal - numFluidParticles
+
+        numFluidParticlesInBatch = fluidParticles.positions.shape[0]
+        numBoundaryParticlesInBatch = boundaryParticles.positions.shape[0] if boundaryParticles is not None else 0
+        numParticlesInBatch = numFluidParticlesInBatch + numBoundaryParticlesInBatch
+
+
         if isinstance(quantity, tuple):
+            # print('Quantity is a tuple, separating fluid and boundary quantities')
             fluidQuantity = quantity[0]
             boundaryQuantity = quantity[1] if boundaryParticles is not None else None
+
+            if batch is not None:
+                if fluidQuantity.shape[0] == numFluidParticles:
+                    # print(f'Filtering fluid quantity for batch {batch} with {numFluidParticles} particles')
+                    fluidQuantity = fluidQuantity[particles.kinds[particles.batches == batch] == 0]
+                if boundaryQuantity is not None and boundaryQuantity.shape[0] == numBoundaryParticles:
+                    # print(f'Filtering boundary quantity for batch {batch} with {numBoundaryParticles} particles')
+                    boundaryQuantity = boundaryQuantity[particles.kinds[particles.batches == batch] == 1]
+
         else:
+            # print('Quantity is a single tensor, filtering based on particle kinds')
             if hasattr(particles, 'kinds'):
-                fluidQuantity = quantity[particles.kinds == 0]
-                boundaryQuantity = quantity[particles.kinds == 1] if boundaryParticles is not None else None
+                # print('Particles have kinds attribute, filtering based on kinds')
+                if batch is not None:
+                    if quantity.shape[0] == numParticlesInBatch:
+                        # print(f'Filtering quantity for batch [quantity is batch sized]')
+                        fluidQuantity = quantity[particles.kinds[particles.batches == batch] == 0]
+                        boundaryQuantity = quantity[particles.kinds[particles.batches == batch] == 1] if boundaryParticles is not None else None
+                    elif quantity.shape[0] == numParticlesTotal:
+                        # print(f'Filtering quantity for batch [quantity is total sized]')
+                        fluidQuantity = quantity[torch.logical_and(particles.kinds == 0, particles.batches == batch)]
+                        boundaryQuantity = quantity[torch.logical_and(particles.kinds == 1, particles.batches == batch)] if boundaryParticles is not None else None
+                else:
+                    fluidQuantity = quantity[particles.kinds == 0]
+                    boundaryQuantity = quantity[particles.kinds == 1] if boundaryParticles is not None else None
             else:
                 fluidQuantity = quantity
                 boundaryQuantity = quantity if boundaryParticles is not None else None
+                if batch is not None:
+                    if fluidQuantity.shape[0] == numParticlesTotal:
+                        fluidQuantity = fluidQuantity[particles.batches == batch]
+                    if boundaryQuantity is not None and boundaryQuantity.shape[0] == numParticlesTotal:
+                        boundaryQuantity = boundaryQuantity[particles.batches == batch]
+                
+
+    if rotMat is not None and len(fluidQuantity.shape) == 2:
+        if fluidQuantity is not None and fluidQuantity.shape[1] == fluidParticles.positions.shape[1]:
+            fluidQuantity = torch.einsum('ij, ni->nj', invRotMat, fluidQuantity)
+        if boundaryQuantity is not None and boundaryQuantity.shape[1] == boundaryParticles.positions.shape[1]:
+            boundaryQuantity = torch.einsum('ij, ni->nj', invRotMat, boundaryQuantity)
 
 
     if not gridVisualization:
@@ -682,7 +885,20 @@ def updatePlot(plotState, particles: Union[ParticleSet, ParticleSetWithQuantity]
             sc = scatterPlotUpdate(sc, axis, mergedParticles, domain, mergedParticles.quantities, cbar, cmap, scaling, linthresh, vmin, vmax, midPoint, 'o', markerSize)
         # return
     else:
-        grid, interpolated = mapToGrid(fluidParticles, mappedQuantity, domain, kernel, gridResolution)
+        if which == 'fluid':
+            grid, interpolated = mapToGrid(fluidParticles, mappedQuantity, domain, kernel, gridResolution)
+        elif which == 'boundary':
+            grid, interpolated = mapToGrid(boundaryParticles, boundaryQuantity, domain, kernel, gridResolution)
+        else:
+            mergedParticles = ParticleSetWithQuantity(
+                positions = torch.cat([fluidParticles.positions, boundaryParticles.positions], dim = 0),
+                supports = torch.cat([fluidParticles.supports, boundaryParticles.supports], dim = 0),
+                masses = torch.cat([fluidParticles.masses, boundaryParticles.masses], dim = 0),
+                densities = torch.cat([fluidParticles.densities, boundaryParticles.densities], dim = 0),
+                quantities = torch.cat([mappedQuantity, boundaryQuantity], dim = 0)
+            )
+            grid, interpolated = mapToGrid(mergedParticles, mergedParticles.quantities, domain, kernel, gridResolution)
+        # grid, interpolated = mapToGrid(fluidParticles, mappedQuantity, domain, kernel, gridResolution)
 
         sc = gridPlotUpdate(axis, sc, grid, interpolated, cmap, scaling, linthresh, vmin, vmax, midPoint)
         if cbar:

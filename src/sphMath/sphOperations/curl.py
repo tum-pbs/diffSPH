@@ -8,6 +8,7 @@ def flattened_sum(tensor, index, dim_size, dim):
         tensor = tensor.flatten(start_dim=1).sum(dim=1)
     return scatter_sum(tensor, index, dim_size=dim_size, dim=dim)
 
+from sphMath.sphOperations.shared import computeDistances
 class SPHCurl(torch.autograd.Function):
     @staticmethod
     def forward(ctx,
@@ -27,19 +28,22 @@ class SPHCurl(torch.autograd.Function):
                 gradientMode : str = 'gradient',
                 periodicity : Union[bool, torch.Tensor] = False,
                 minExtent : torch.Tensor = torch.zeros(3),
-                maxExtent : torch.Tensor = torch.ones(3)
+                maxExtent : torch.Tensor = torch.ones(3),
+                rotationMatrix : Optional[torch.Tensor] = None,
+                batchTensor : Optional[torch.Tensor] = None
                 ):
         ## -------------------------------------------------------------- ##
         ## ---------------------- Start of preamble --------------------- ##
         ## -------------------------------------------------------------- ##
         # Store state for backwards pass
-        ctx.save_for_backward(masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j)
+        ctx.save_for_backward(masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j, batchTensor)
         ctx.kernel = kernel
         ctx.gradientMode = gradientMode
         ctx.support = support
         ctx.periodicity = periodicity
         ctx.minExtent = minExtent
         ctx.maxExtent = maxExtent
+        ctx.rotationMatrix = rotationMatrix
 
         # rename variables for ease of usage
         masses = (masses_i, masses_j)
@@ -49,7 +53,7 @@ class SPHCurl(torch.autograd.Function):
         supports = (supports_i, supports_j)
             
         # compute relative positions and support radii
-        x_ij = mod_distance(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent)
+        x_ij = computeDistances(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent, batchTensor[i] if batchTensor is not None else None, rotationMatrix)
         h_ij = getSupport(supports, i, j, mode = support)
 
         # compute ancillary variables
@@ -101,7 +105,7 @@ class SPHCurl(torch.autograd.Function):
         ## ---------------------- Start of preamble --------------------- ##
         ## -------------------------------------------------------------- ##
         # Load saved tensors
-        masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j = ctx.saved_tensors
+        masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j, batchTensor = ctx.saved_tensors
 
         # Load saved variables
         wrappedKernel = ctx.kernel
@@ -110,6 +114,7 @@ class SPHCurl(torch.autograd.Function):
         periodicity = ctx.periodicity
         minExtent = ctx.minExtent
         maxExtent = ctx.maxExtent
+        rotationMatrix = ctx.rotationMatrix
 
         # rename variables for ease of usage
         masses = (masses_i, masses_j)
@@ -119,7 +124,8 @@ class SPHCurl(torch.autograd.Function):
         supports = (supports_i, supports_j)
         
         # compute relative positions and support radii
-        x_ij = mod_distance(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent)
+        x_ij = computeDistances(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent, batchTensor[i] if batchTensor is not None else None, rotationMatrix)
+
         h_ij = getSupport(supports, i, j, mode = support)
 
         # compute ancillary variables
@@ -284,7 +290,7 @@ class SPHCurl(torch.autograd.Function):
             None, \
             None, None,\
             None, None,\
-            None, None, None
+            None, None, None, None, None
             
             
 import torch

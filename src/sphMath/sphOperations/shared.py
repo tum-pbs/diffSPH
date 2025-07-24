@@ -30,6 +30,58 @@ def product(a,  b):
             return a * b
         raise ValueError(f"Invalid shapes {a.shape} and {b.shape}")
     
+
+from typing import List
+
+def computeDistances(
+        positions_i: torch.Tensor,
+        positions_j: torch.Tensor,
+        minExtent: Union[torch.Tensor, List[torch.Tensor]],
+        maxExtent: Union[torch.Tensor, List[torch.Tensor]],
+        periodicity: Union[torch.Tensor, List[torch.Tensor]],
+
+        batchTensor: Optional[torch.Tensor],
+        rotationMatrices: Optional[Union[torch.Tensor, List[torch.Tensor]]] = None
+    ) -> torch.Tensor:
+    if isinstance(minExtent, List):
+        distances = []
+        for batch in range(len(minExtent)):
+            minExtent_ = minExtent[batch]
+            maxExtent_ = maxExtent[batch]
+            periodicity_ = periodicity[batch] if isinstance(periodicity, List) else periodicity
+            if rotationMatrices is not None:
+                # print(rotationMatrices)
+                if not isinstance(rotationMatrices, List):
+                    raise ValueError("If minExtent, maxExtent, or periodicity are lists, rotationMatrices must also be a list.")
+                rotMat_ = rotationMatrices[batch] 
+            else:
+                rotMat_ = None
+            if batchTensor is None:
+                raise ValueError("If minExtent, maxExtent, or periodicity are lists, batchTensor must also be provided.")
+            distances.append(
+                    computeDistances(
+                        positions_i[batchTensor == batch],
+                        positions_j[batchTensor == batch],
+                        minExtent_,
+                        maxExtent_,
+                        periodicity_,
+                        None,
+                        rotMat_
+                )
+            )
+        return torch.cat(distances, dim=0)
+    else:
+        if rotationMatrices is not None:
+            x_i = torch.einsum('ij, nj -> ni', rotationMatrices, positions_i)
+            x_j = torch.einsum('ij, nj -> ni', rotationMatrices, positions_j)
+            x_ij = mod_distance(x_i, x_j, periodicity, minExtent, maxExtent)
+            x_ij = torch.einsum('ij, nj -> ni', rotationMatrices.T, x_ij)
+            return x_ij
+        else:
+            return mod_distance(positions_i, positions_j, periodicity, minExtent, maxExtent)
+        
+
+
 # ------ Beginning of scatter functionality ------ #
 # Scatter summation functionality based on pytorch geometric scatter functionality
 # This is included here to make the code independent of pytorch geometric for portability

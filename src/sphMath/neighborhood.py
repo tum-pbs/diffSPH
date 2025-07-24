@@ -1032,7 +1032,7 @@ def computeNeighborhoodStates(particles, sparseNeighborhood_, mode_str, kernel, 
             fluidToBoundary = fluidToBoundaryIndices,
             boundaryToBoundary = boundaryToBoundaryIndices,
             fluidToGhost = fluidToGhostIndices,
-            noGhost= (0, boundaryToBoundaryIndices[-1]),
+            noGhost= (0, boundaryToBoundaryIndices[-1]) if boundaryToBoundaryIndices is not None else (0, sortedNeighbors.row.shape[0])
         )
 
 def evaluateNeighborhood(particles,

@@ -1,7 +1,7 @@
 import torch
 from sphMath.kernels import SPHKernel
 from typing import Union, Tuple, Optional
-from sphMath.sphOperations.shared import get_i, get_j, mod_distance, getSupport, scatter_sum, product
+from sphMath.sphOperations.shared import get_i, get_j, mod_distance, getSupport, scatter_sum, product, computeDistances
 
 def flattened_sum(tensor, index, dim_size, dim):
     if tensor.dim() > 1:
@@ -29,13 +29,15 @@ class SPHDivergence(torch.autograd.Function):
                 consistent : bool = False,
                 periodicity : Union[bool, torch.Tensor] = False,
                 minExtent : torch.Tensor = torch.zeros(3),
-                maxExtent : torch.Tensor = torch.ones(3)
+                maxExtent : torch.Tensor = torch.ones(3),
+                rotationMatrix : Optional[torch.Tensor] = None,
+                batchTensor : Optional[torch.Tensor] = None
                 ):
         ## -------------------------------------------------------------- ##
         ## ---------------------- Start of preamble --------------------- ##
         ## -------------------------------------------------------------- ##
         # Store state for backwards pass
-        ctx.save_for_backward(masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j)
+        ctx.save_for_backward(masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j, batchTensor)
         ctx.kernel = kernel
         ctx.gradientMode = gradientMode
         ctx.support = support
@@ -44,6 +46,7 @@ class SPHDivergence(torch.autograd.Function):
         ctx.maxExtent = maxExtent
         ctx.divergenceMode = divergenceMode
         ctx.consistent = consistent
+        ctx.rotationMatrix = rotationMatrix
 
         # rename variables for ease of usage
         masses = (masses_i, masses_j)
@@ -53,7 +56,7 @@ class SPHDivergence(torch.autograd.Function):
         supports = (supports_i, supports_j)
             
         # compute relative positions and support radii
-        x_ij = mod_distance(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent)
+        x_ij = computeDistances(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent, batchTensor[i] if batchTensor is not None else None, rotationMatrix)
         h_ij = getSupport(supports, i, j, mode = support)
 
         # compute ancillary variables
@@ -105,7 +108,7 @@ class SPHDivergence(torch.autograd.Function):
         ## ---------------------- Start of preamble --------------------- ##
         ## -------------------------------------------------------------- ##
         # Load saved tensors
-        masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j = ctx.saved_tensors
+        masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j, batchTensor = ctx.saved_tensors
 
         # Load saved variables
         wrappedKernel = ctx.kernel
@@ -116,6 +119,7 @@ class SPHDivergence(torch.autograd.Function):
         maxExtent = ctx.maxExtent
         divergenceMode = ctx.divergenceMode
         consistent = ctx.consistent
+        rotationMatrix = ctx.rotationMatrix
 
         # rename variables for ease of usage
         masses = (masses_i, masses_j)
@@ -125,7 +129,7 @@ class SPHDivergence(torch.autograd.Function):
         supports = (supports_i, supports_j)
         
         # compute relative positions and support radii
-        x_ij = mod_distance(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent)
+        x_ij = computeDistances(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent, batchTensor[i] if batchTensor is not None else None, rotationMatrix)
         h_ij = getSupport(supports, i, j, mode = support)
 
         # compute ancillary variables
@@ -258,7 +262,7 @@ class SPHDivergence(torch.autograd.Function):
             None, \
             None, None,\
             None, None,\
-            None, None, None, None, None
+            None, None, None, None, None, None, None
             
             
 import torch

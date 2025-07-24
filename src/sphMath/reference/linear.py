@@ -46,9 +46,9 @@ def buildLinearWaveSimulation(
     dim = 1
     domain = buildDomainDescription(l, dim, periodic = True, device = device, dtype = dtype)
     scheme, SimulationSystem, config, integrator = getSimulationScheme(simulationScheme, kernel, integrationScheme, gamma, targetNeighbors, domain, viscositySwitch, supportScheme, verletScale=1.4)
-    print('nx', nx)
+    # print('nx', nx)
     particles = sampleRegularParticles(nx, domain, targetNeighbors, jitter = 0.0)
-    print(particles.positions.shape[0])
+    # print(particles.positions.shape[0])
     wrappedKernel = kernel
 
     if verbose:
@@ -87,9 +87,9 @@ def buildLinearWaveSimulation(
         entropies=None,
         pressures=None,
         soundspeeds=None,
-        divergence=torch.zeros_like(densities),
-        alpha0s= torch.ones_like(densities),
-        alphas= torch.ones_like(densities),
+        divergence=torch.zeros_like(particles.masses),
+        alpha0s= torch.ones_like(particles.masses),
+        alphas= torch.ones_like(particles.masses),
     )
     m0 = particles.masses.clone()
     h = particles.supports.clone()
@@ -105,7 +105,7 @@ def buildLinearWaveSimulation(
 
 
         masses = particles.masses*( 1 - error)
-        print(f'\tIteration {i} - Sampling Error: {(error**2).mean():.2e}')
+        # print(f'\tIteration {i} - Sampling Error: {(error**2).mean():.2e}')
 
         particles = CompressibleState(
             positions = particles.positions,
@@ -123,9 +123,9 @@ def buildLinearWaveSimulation(
             entropies=None,
             pressures=None,
             soundspeeds=None,
-        divergence=torch.zeros_like(densities),
-        alpha0s= torch.ones_like(densities),
-        alphas= torch.ones_like(densities),
+        divergence=torch.zeros_like(particles.masses),
+        alpha0s= torch.ones_like(particles.masses),
+        alphas= torch.ones_like(particles.masses),
         )
         # masses = particles.masses*( 1 +  delta_i)
 # evaluateOptimalSupport(
@@ -232,6 +232,9 @@ def runLinearWaveTest(
         c_s = 1,
         gamma = 5/3,
 
+        C_l = 1,
+        C_q = 2,
+
         targetNeighbors = 9,
         device = torch.device('cpu'),
         dtype = torch.float64,
@@ -286,6 +289,9 @@ def runLinearWaveTest(
     L2s = []
     Linfs = []
     rhos = []
+
+    config['diffusion']['C_l'] = C_l
+    config['diffusion']['C_q'] = C_q
 
     for i in (tq:= tqdm(range(timesteps), leave=False)):
         copiedSystem, currentState, updates  = integrator.function(copiedSystem, dt, scheme, config, verbose = False, priorStep = copiedSystem.priorStep)

@@ -1,7 +1,7 @@
 import torch
 from sphMath.kernels import SPHKernel
 from typing import Union, Tuple, Optional
-from sphMath.sphOperations.shared import get_i, get_j, mod_distance, getSupport, scatter_sum, product
+from sphMath.sphOperations.shared import get_i, get_j, mod_distance, getSupport, scatter_sum, product, computeDistances
 
 def flattened_sum(tensor, index, dim_size, dim):
     if tensor.dim() > 1:
@@ -28,13 +28,15 @@ class SPHLaplacian(torch.autograd.Function):
                 periodicity : Union[bool, torch.Tensor] = False,
                 minExtent : torch.Tensor = torch.zeros(3),
                 maxExtent : torch.Tensor = torch.ones(3),
-                piSwitch : bool = False
+                piSwitch : bool = False,
+                rotationMatrix : Optional[torch.Tensor] = None,
+                batchTensor : Optional[torch.Tensor] = None
                 ):
         ## -------------------------------------------------------------- ##
         ## ---------------------- Start of preamble --------------------- ##
         ## -------------------------------------------------------------- ##
         # Store state for backwards pass
-        ctx.save_for_backward(masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j)
+        ctx.save_for_backward(masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j, batchTensor)
         ctx.kernel = kernel
         ctx.laplacianMode = laplacianMode
         ctx.support = support
@@ -42,6 +44,7 @@ class SPHLaplacian(torch.autograd.Function):
         ctx.minExtent = minExtent
         ctx.maxExtent = maxExtent
         ctx.piSwitch = piSwitch
+        ctx.rotationMatrix = rotationMatrix
 
         # rename variables for ease of usage
         masses = (masses_i, masses_j)
@@ -51,7 +54,7 @@ class SPHLaplacian(torch.autograd.Function):
         supports = (supports_i, supports_j)
             
         # compute relative positions and support radii
-        x_ij = -mod_distance(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent)
+        x_ij = computeDistances(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent, batchTensor[i] if batchTensor is not None else None, rotationMatrix)
         r_ij = torch.linalg.norm(x_ij, dim = -1)
         h_ij = getSupport(supports, i, j, mode = support)
 
@@ -183,7 +186,7 @@ class SPHLaplacian(torch.autograd.Function):
         ## ---------------------- Start of preamble --------------------- ##
         ## -------------------------------------------------------------- ##
         # Load saved tensors
-        masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j = ctx.saved_tensors
+        masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j, batchTensor = ctx.saved_tensors
 
         # Load saved variables
         wrappedKernel = ctx.kernel
@@ -192,6 +195,7 @@ class SPHLaplacian(torch.autograd.Function):
         periodicity = ctx.periodicity
         minExtent = ctx.minExtent
         maxExtent = ctx.maxExtent
+        rotationMatrix = ctx.rotationMatrix
         # print('Computing backwards for {laplacianMode}')
 
         # rename variables for ease of usage
@@ -202,7 +206,7 @@ class SPHLaplacian(torch.autograd.Function):
         supports = (supports_i, supports_j)
         
         # compute relative positions and support radii
-        x_ij = mod_distance(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent)
+        x_ij = computeDistances(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent, batchTensor[i] if batchTensor is not None else None, rotationMatrix)
         r_ij = torch.linalg.norm(x_ij, dim = -1)
         h_ij = getSupport(supports, i, j, mode = support)
 
@@ -601,7 +605,7 @@ class SPHLaplacian(torch.autograd.Function):
             None, \
             None, None,\
             None, None,\
-            None, None, None
+            None, None, None, None, None
             
             
 import torch
@@ -897,9 +901,9 @@ def laplacian_fn(
 
         fkq : Optional[torch.Tensor] = None
         if laplacianMode == LaplacianMode.naive:
-            if laplacian_ij is None:
+            if laplacian_ij is not None:
                 fkq = torch.einsum('n..., n -> n...', fq, laplacian_ij)
-            # print("Something")
+            # print("Something", laplacian_ij, fq, fkq)
         elif laplacianMode == LaplacianMode.Brookshaw:
             F_ab = torch.einsum('nd, nd -> n', x_ij, gradW_ij) / (r_ij + 1e-8 * h_i)**2
             fkq = torch.einsum('n..., n -> n...', fq, -2 * F_ab)
@@ -1026,7 +1030,7 @@ class Laplacian(torch.autograd.Function):
 
         inputs_i = [quantity_a, densities_a, supports_a, correctionTerm_omega_i, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, correctionTerm_gradMatrix_i]
         inputs_j = [quantity_b, masses_b, densities_b, apparentArea_b, correctionTerm_omega_j, correctionTerm_A_j, correctionTerm_B_j, correctionTerm_gradA_j, correctionTerm_gradB_j]
-        inputs_ij = [quantity_ab, x_ij, r_ij, W_i, W_j, gradW_i, gradW_j]
+        inputs_ij = [quantity_ab, x_ij, r_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j]
 
         return custom_forwards(
             laplacian_fn, 
@@ -1051,7 +1055,7 @@ class Laplacian(torch.autograd.Function):
 
         inputs_i = [quantity_a, densities_a, supports_a, correctionTerm_omega_i, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, correctionTerm_gradMatrix_i]
         inputs_j = [quantity_b, masses_b, densities_b, apparentArea_b, correctionTerm_omega_j, correctionTerm_A_j, correctionTerm_B_j, correctionTerm_gradA_j, correctionTerm_gradB_j]
-        inputs_ij = [quantity_ab, x_ij, r_ij, W_i, W_j, H_i, H_j, gradW_i, gradW_j]
+        inputs_ij = [quantity_ab, x_ij, r_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j]
 
 
         grad_quantity_a, grad_densities_a, grad_supports_a, grad_correctionTerm_omega_i, grad_correctionTerm_A_i, grad_correctionTerm_B_i, grad_correctionTerm_gradA_i, grad_correctionTerm_gradB_i, grad_correctionTerm_gradMatrix_i, grad_quantity_b, grad_masses_b, grad_densities_b, grad_apparentArea_b, grad_correctionTerm_omega_j, grad_correctionTerm_A_j, grad_correctionTerm_B_j, grad_correctionTerm_gradA_j, grad_correctionTerm_gradB_j, grad_quantity_ab, grad_x_ij, grad_r_ij, grad_W_i, grad_W_j, grad_gradW_i, grad_gradW_j, grad_H_i, grad_H_j  = custom_backwards(

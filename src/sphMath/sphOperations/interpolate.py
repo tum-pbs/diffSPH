@@ -1,7 +1,7 @@
 import torch
 from sphMath.kernels import SPHKernel
 from typing import Union, Tuple, Optional
-from sphMath.sphOperations.shared import get_i, get_j, mod_distance, getSupport, scatter_sum, product
+from sphMath.sphOperations.shared import get_i, get_j, mod_distance, getSupport, scatter_sum, product, computeDistances
 
 
 class SPHInterpolation(torch.autograd.Function):
@@ -22,18 +22,21 @@ class SPHInterpolation(torch.autograd.Function):
                 support : str = 'scatter',
                 periodicity : Union[bool, torch.Tensor] = False,
                 minExtent : torch.Tensor = torch.zeros(3),
-                maxExtent : torch.Tensor = torch.ones(3)
+                maxExtent : torch.Tensor = torch.ones(3),
+                rotationMatrix : Optional[torch.Tensor] = None,
+                batchTensor: Optional[torch.Tensor] = None,
                 ):
         ## -------------------------------------------------------------- ##
         ## ---------------------- Start of preamble --------------------- ##
         ## -------------------------------------------------------------- ##
         # Store state for backwards pass
-        ctx.save_for_backward(masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j)
+        ctx.save_for_backward(masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j, batchTensor)
         ctx.kernel = kernel
         ctx.support = support
         ctx.periodicity = periodicity
         ctx.minExtent = minExtent
         ctx.maxExtent = maxExtent
+        ctx.rotationMatrix = rotationMatrix
 
         # rename variables for ease of usage
         masses = (masses_i, masses_j)
@@ -42,8 +45,9 @@ class SPHInterpolation(torch.autograd.Function):
         positions = (positions_i, positions_j)
         supports = (supports_i, supports_j)
             
+
         # compute relative positions and support radii
-        x_ij = mod_distance(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent)
+        x_ij = computeDistances(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent, batchTensor[i] if batchTensor is not None else None, rotationMatrix)
         h_ij = getSupport(supports, i, j, mode = support)
 
         # compute ancillary variables
@@ -71,7 +75,7 @@ class SPHInterpolation(torch.autograd.Function):
         ## ---------------------- Start of preamble --------------------- ##
         ## -------------------------------------------------------------- ##
         # Load saved tensors
-        masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j = ctx.saved_tensors
+        masses_i, masses_j, densities_i, densities_j, quantities_i, quantities_j, positions_i, positions_j, supports_i, supports_j, i, j, batchTensor = ctx.saved_tensors
 
         # Load saved variables
         wrappedKernel = ctx.kernel
@@ -79,6 +83,7 @@ class SPHInterpolation(torch.autograd.Function):
         periodicity = ctx.periodicity
         minExtent = ctx.minExtent
         maxExtent = ctx.maxExtent
+        rotationMatrix = ctx.rotationMatrix
 
         # rename variables for ease of usage
         masses = (masses_i, masses_j)
@@ -88,7 +93,7 @@ class SPHInterpolation(torch.autograd.Function):
         supports = (supports_i, supports_j)
         
         # compute relative positions and support radii
-        x_ij = mod_distance(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent)
+        x_ij = computeDistances(get_i(positions, i), get_j(positions, j), periodicity, minExtent, maxExtent, rotationMatrix, batchTensor[i] if batchTensor is not None else None)
         h_ij = getSupport(supports, i, j, mode = support)
 
         # compute ancillary variables
@@ -148,7 +153,7 @@ class SPHInterpolation(torch.autograd.Function):
             None, \
             None, None,\
             None, \
-            None, None, None
+            None, None, None, None, None
             
             
 import torch

@@ -160,32 +160,54 @@ def sph_operation(
         consistentDivergence = False,
         gradientRenormalizationMatrix = None,
         gradHTerms = None,
-        piSwitch = False
+        piSwitch = False,
+        rotationMatrix : Optional[torch.Tensor] = None,
+        batches : Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]] = None
 ):
     if operation == 'density':
         with record_function(f"[SPH rho] {supportScheme}"):
-            return wrapper(SPHInterpolation.apply, masses, masses, masses, positions, supports, kernel, i, j, supportScheme, periodicity, minExtent, maxExtent)
+            return wrapper(SPHInterpolation.apply, masses, masses, masses, positions, supports, kernel, i, j, supportScheme, periodicity, minExtent, maxExtent, rotationMatrix, batches)
     if operation == 'interpolate':
         with record_function(f"[SPH op] {supportScheme}"):
-            return wrapper(SPHInterpolation.apply, masses, densities, quantities, positions, supports, kernel, i, j,  supportScheme, periodicity, minExtent, maxExtent)
+            return wrapper(SPHInterpolation.apply, masses, densities, quantities, positions, supports, kernel, i, j,  supportScheme, periodicity, minExtent, maxExtent, rotationMatrix, batches)
     elif operation == 'gradient':
         with record_function(f"[SPH grad] {gradientMode} {supportScheme}{' ReNorm' if gradientRenormalizationMatrix is not None else ' '}{' gradH' if gradHTerms is not None else ''}"):
-            return wrapper(SPHGradient.apply, masses, densities, quantities, positions, supports, kernel, i, j, supportScheme, gradientMode, periodicity, minExtent, maxExtent, gradientRenormalizationMatrix, gradHTerms)
+            return wrapper(SPHGradient.apply, masses, densities, quantities, positions, supports, kernel, i, j, supportScheme, gradientMode, periodicity, minExtent, maxExtent, gradientRenormalizationMatrix, gradHTerms, rotationMatrix, batches)
     elif operation == 'divergence':
         with record_function(f"[SPH div] {divergenceMode} {supportScheme}{' consistent' if consistentDivergence else ''}"):
-            return wrapper(SPHDivergence.apply, masses, densities, quantities, positions, supports, kernel, i, j, supportScheme, gradientMode, divergenceMode, consistentDivergence, periodicity, minExtent,  maxExtent)
+            return wrapper(SPHDivergence.apply, masses, densities, quantities, positions, supports, kernel, i, j, supportScheme, gradientMode, divergenceMode, consistentDivergence, periodicity, minExtent,  maxExtent, rotationMatrix, batches)
     elif operation == 'curl':
         with record_function(f"[SPH curl] {supportScheme}"):
-            return wrapper(SPHCurl.apply, masses, densities, quantities, positions, supports, kernel, i, j, supportScheme, gradientMode, periodicity, minExtent, maxExtent)
+            return wrapper(SPHCurl.apply, masses, densities, quantities, positions, supports, kernel, i, j, supportScheme, gradientMode, periodicity, minExtent, maxExtent, rotationMatrix, batches)
     elif operation == 'laplacian':
         with record_function(f"[SPH laplacian] {laplaceMode} {supportScheme}"):
-            return wrapper(SPHLaplacian.apply, masses, densities, quantities, positions, supports, kernel, i, j, supportScheme, laplaceMode, periodicity, minExtent, maxExtent, piSwitch)
+            return wrapper(SPHLaplacian.apply, masses, densities, quantities, positions, supports, kernel, i, j, supportScheme, laplaceMode, periodicity, minExtent, maxExtent, piSwitch, rotationMatrix, batches)
     else:
         raise ValueError(f"Unknown operation {operation}")
     
 
 from sphMath.util import ParticleSetWithQuantity, ParticleSet, DomainDescription
 from sphMath.neighborhood import NeighborhoodInformation, SparseCOO, SparseCSR
+
+
+from typing import List
+def buildRotationMatrix(angles : List[float], dim: int, device: torch.device = None, dtype: torch.dtype = None):
+    if dim == 1:
+        return torch.tensor([[1.0]], device=device, dtype=dtype)
+    elif dim == 2:
+        return torch.tensor([[torch.cos(angles), -torch.sin(angles)],
+                             [torch.sin(angles), torch.cos(angles)]], device=device, dtype=dtype)
+    elif dim == 3:
+        angle_phi = angles[0]
+        angle_theta = angles[1]
+        return torch.tensor([
+            [torch.cos(angle_phi) * torch.sin(angle_theta), -torch.sin(angle_phi), torch.cos(angle_phi) * torch.cos(angle_theta)],
+            [torch.sin(angle_phi) * torch.sin(angle_theta), torch.cos(angle_phi), torch.sin(angle_phi) * torch.cos(angle_theta)],
+            [torch.cos(angle_theta), 0, -torch.sin(angle_theta)]
+        ], device=device, dtype=dtype)
+    else:
+        raise ValueError(f"Unsupported dimension: {dim}")
+
 def sph_op(
     particles_a : Union[ParticleSet, ParticleSetWithQuantity],
     particles_b : Union[ParticleSet, ParticleSetWithQuantity],
@@ -201,7 +223,9 @@ def sph_op(
     quantity : Optional[Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
     gradientRenormalizationMatrix :Optional[torch.Tensor] = None,
     gradHTerms : Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-    piSwitch = False
+    piSwitch = False,
+    rotationMatrix : Optional[torch.Tensor] = None,
+    batchTensor: Optional[torch.Tensor] = None
 ):
     quantities = (particles_a.quantities if hasattr(particles_a, 'quantities') else None, particles_b.quantities if hasattr(particles_b, 'quantities') else None)
     if quantity is not None:
@@ -221,6 +245,19 @@ def sph_op(
         elif isinstance(quantity, tuple):
             quantities = quantity
 
+    rotationMatrices = rotationMatrix
+
+    if rotationMatrices is None:
+        if isinstance(domain, List):
+            if hasattr(domain[0], 'angles'):
+                rotationMatrices = [buildRotationMatrix(torch.tensor(d.angles), d.dim, device = d.device, dtype = d.dtype) for d in domain]
+        else:
+            if hasattr(domain, 'angles'):
+                rotationMatrices = buildRotationMatrix(torch.tensor(domain.angles), domain.dim, device = domain.device, dtype = domain.dtype)
+            else:
+                rotationMatrices = None
+
+
     return sph_operation(
         (particles_a.masses if hasattr(particles_a, 'masses') else None, particles_b.masses),
         (particles_a.densities if hasattr(particles_a, 'densities') else None, particles_b.densities),
@@ -229,8 +266,8 @@ def sph_op(
         (particles_a.supports, particles_b.supports),
         kernel,
         neighborhood.row, neighborhood.col,
-        domain.min, domain.max,
-        domain.periodic,
+        [d.min for d in domain] if isinstance(domain, List) else domain.min, [d.max for d in domain] if isinstance(domain, List) else domain.max,
+        [d.periodic for d in domain] if isinstance(domain, List) else domain.periodic,
         supportScheme,
         operation,
         gradientMode,
@@ -239,7 +276,10 @@ def sph_op(
         consistentDivergence,
         gradientRenormalizationMatrix,
         gradHTerms,
-        piSwitch)
+        piSwitch,
+        rotationMatrices,
+        batchTensor if batchTensor is not None else particles_a.batches if hasattr(particles_a, 'batches') else None
+)
 
 from sphMath.schemes.states.compressiblesph import CompressibleState
 from sphMath.schemes.states.wcsph import WeaklyCompressibleState
