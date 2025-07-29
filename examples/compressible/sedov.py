@@ -11,39 +11,39 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import os
-from sphMath.operations import sph_operation, mod
-from sphMath.neighborhood import PointCloud, DomainDescription, buildNeighborhood, filterNeighborhood, coo_to_csrsc, coo_to_csr
-from sphMath.util import volumeToSupport
-from sphMath.util import ParticleSet
-from sphMath.sampling import buildDomainDescription, sampleRegularParticles
+from diffSPH.operations import sph_operation, mod
+from diffSPH.neighborhood import PointCloud, DomainDescription, buildNeighborhood, filterNeighborhood, coo_to_csrsc, coo_to_csr
+from diffSPH.util import volumeToSupport
+from diffSPH.util import ParticleSet
+from diffSPH.sampling import buildDomainDescription, sampleRegularParticles
 
-from sphMath.plotting import visualizeParticles
-from sphMath.sampling import generateNoiseInterpolator
-from sphMath.util import ParticleSetWithQuantity, mergeParticles
+from diffSPH.plotting import visualizeParticles
+from diffSPH.sampling import generateNoiseInterpolator
+from diffSPH.util import ParticleSetWithQuantity, mergeParticles
 import random
-from sphMath.sampling import getSpacing
-from sphMath.operations import sph_op
-from sphMath.sampling import generateTestData
-from sphMath.modules.density import computeDensity, computeDensityGradient, computeRenormalizedDensityGradient, computeDensityDeltaTerm
+from diffSPH.sampling import getSpacing
+from diffSPH.operations import sph_op
+from diffSPH.sampling import generateTestData
+from diffSPH.modules.density import computeDensity, computeDensityGradient, computeRenormalizedDensityGradient, computeDensityDeltaTerm
 
 from typing import NamedTuple, Tuple
-from sphMath.kernels import KernelType
-# from sphMath.neighborhood import buildSuperSymmetricNeighborhood
-from sphMath.modules.adaptiveSmoothing import computeOmega, evaluateOptimalSupport
-from sphMath.integration import semiImplicitEuler, TVDRK3, symplecticEuler, RungeKutta2
-from sphMath.schemes.monaghanPrice import getPrice2007Config, MonaghanScheme, getMonaghan1997Config, getMonaghan1992Config, getMonaghanGingold1983Config
-from sphMath.schemes.compSPH import compSPHScheme, getCompSPHConfig, CompSPHSystem
-from sphMath.schemes.PressureEnergySPH import PressureEnergyScheme, getPressureEnergyConfig
-from sphMath.schemes.CRKSPH import CRKScheme, getCRKConfig
-from sphMath.schemes.gasDynamics import CompressibleSystem, CompressibleState
-from sphMath.reference.sod import buildSod_reference, sodInitialState, generateSod1D
+from diffSPH.kernels import KernelType
+# from diffSPH.neighborhood import buildSuperSymmetricNeighborhood
+from diffSPH.modules.adaptiveSmoothing import computeOmega, evaluateOptimalSupport
+from diffSPH.integration import semiImplicitEuler, TVDRK3, symplecticEuler, RungeKutta2
+from diffSPH.schemes.monaghanPrice import getPrice2007Config, MonaghanScheme, getMonaghan1997Config, getMonaghan1992Config, getMonaghanGingold1983Config
+from diffSPH.schemes.compSPH import compSPHScheme, getCompSPHConfig, CompSPHSystem
+from diffSPH.schemes.PressureEnergySPH import PressureEnergyScheme, getPressureEnergyConfig
+from diffSPH.schemes.CRKSPH import CRKScheme, getCRKConfig
+from diffSPH.schemes.gasDynamics import CompressibleSystem, CompressibleState
+from diffSPH.reference.sod import buildSod_reference, sodInitialState, generateSod1D
 import copy
 
-from sphMath.reference.hydrostatic import generateHydroStatic
-from sphMath.modules.eos import idealGasEOS
-from sphMath.kernels import Kernel
-from sphMath.sampling import sampleShell
-from sphMath.neighborhood import evaluateNeighborhood, filterNeighborhoodByKind, SupportScheme
+from diffSPH.reference.hydrostatic import generateHydroStatic
+from diffSPH.modules.eos import idealGasEOS
+from diffSPH.kernels import Kernel
+from diffSPH.sampling import sampleShell
+from diffSPH.neighborhood import evaluateNeighborhood, filterNeighborhoodByKind, SupportScheme
 
 def buildSedov(
         nx : int = 200,

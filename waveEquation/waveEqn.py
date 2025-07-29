@@ -1,12 +1,12 @@
 from typing import Union, Tuple
-from sphMath.neighborhood import SparseNeighborhood, PrecomputedNeighborhood
-from sphMath.operations import GradientMode, LaplacianMode
-from sphMath.kernels import SPHKernel
-from sphMath.enums import *
-from sphMath.operations import SPHOperation, Operation
-from sphMath.schemes.states.common import BasicState
-from sphMath.neighborhood import SupportScheme, evaluateNeighborhood
-from sphMath.neighborhood import PointCloud, DomainDescription, buildNeighborhood, filterNeighborhood, coo_to_csrsc, coo_to_csr, filterNeighborhoodByKind
+from diffSPH.neighborhood import SparseNeighborhood, PrecomputedNeighborhood
+from diffSPH.operations import GradientMode, LaplacianMode
+from diffSPH.kernels import SPHKernel
+from diffSPH.enums import *
+from diffSPH.operations import SPHOperation, Operation
+from diffSPH.schemes.states.common import BasicState
+from diffSPH.neighborhood import SupportScheme, evaluateNeighborhood
+from diffSPH.neighborhood import PointCloud, DomainDescription, buildNeighborhood, filterNeighborhood, coo_to_csrsc, coo_to_csr, filterNeighborhoodByKind
 
 from dataclasses import dataclass
 def verbosePrint(verbose, *args):
@@ -49,8 +49,8 @@ class WaveSystemUpdate:
 from dataclasses import dataclass
 from typing import List, Optional, Union
 import warnings
-from sphMath.integrationSchemes.util import integrateQ
-from sphMath.integration import getIntegrator
+from diffSPH.integrationSchemes.util import integrateQ
+from diffSPH.integration import getIntegrator
 
 
 import numpy as np

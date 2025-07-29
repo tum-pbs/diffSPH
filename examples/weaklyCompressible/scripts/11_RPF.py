@@ -13,27 +13,27 @@ from torch.profiler import profile,  ProfilerActivity
 if torch.cuda.is_available():
     os.environ['TORCH_CUDA_ARCH_LIST'] = f'{torch.cuda.get_device_properties(0).major}.{torch.cuda.get_device_properties(0).minor}'
 
-from sphMath.sampling import buildDomainDescription, sampleDivergenceFreeNoise
-from sphMath.modules.adaptiveSmoothingASPH import n_h_to_nH
-from sphMath.plotting import visualizeParticles, updatePlot
-from sphMath.integration import getIntegrator, getIntegrationEnum
-from sphMath.util import volumeToSupport
-from sphMath.boundary import sampleDomainSDF
-from sphMath.kernels import Kernel_Scale, getKernelEnum
-from sphMath.sdf import getSDF, sdfFunctions, operatorDict, sampleSDF
-from sphMath.regions import buildRegion, filterRegion, plotRegions
-from sphMath.modules.timestep import computeTimestep
-from sphMath.schemes.initializers import initializeSimulation, updateBodyParticles
-from sphMath.schemes.deltaSPH import deltaPlusSPHScheme, DeltaPlusSPHSystem
-from sphMath.schema import getSimulationScheme
-from sphMath.enums import *
+from diffSPH.sampling import buildDomainDescription, sampleDivergenceFreeNoise
+from diffSPH.modules.adaptiveSmoothingASPH import n_h_to_nH
+from diffSPH.plotting import visualizeParticles, updatePlot
+from diffSPH.integration import getIntegrator, getIntegrationEnum
+from diffSPH.util import volumeToSupport
+from diffSPH.boundary import sampleDomainSDF
+from diffSPH.kernels import Kernel_Scale, getKernelEnum
+from diffSPH.sdf import getSDF, sdfFunctions, operatorDict, sampleSDF
+from diffSPH.regions import buildRegion, filterRegion, plotRegions
+from diffSPH.modules.timestep import computeTimestep
+from diffSPH.schemes.initializers import initializeSimulation, updateBodyParticles
+from diffSPH.schemes.deltaSPH import deltaPlusSPHScheme, DeltaPlusSPHSystem
+from diffSPH.schema import getSimulationScheme
+from diffSPH.enums import *
 import math
 import argparse
 from exampleUtil import setupExampleSimulation, runSimulation, postProcess
 import numpy as np
-from sphMath.modules.particleShifting import shuffleParticles
+from diffSPH.modules.particleShifting import shuffleParticles
 import h5py
-from sphMath.io import writeAttributesWCSPH, getState, saveState
+from diffSPH.io import writeAttributesWCSPH, getState, saveState
 
 
 parser = argparse.ArgumentParser(description='SPH Simulation Parameters')
@@ -123,7 +123,7 @@ config['surfaceDetection']['active'] = freeSurface
 config['shifting']['freeSurface'] = freeSurface
 
 
-from sphMath.util import getPeriodicPositions
+from diffSPH.util import getPeriodicPositions
 
 xi = 1
 def forcing(x, mask, state, t, dt):

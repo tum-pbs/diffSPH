@@ -12,20 +12,20 @@ from torch.profiler import profile,  ProfilerActivity
 
 # os.environ['TORCH_CUDA_ARCH_LIST'] = f'{torch.cuda.get_device_properties(0).major}.{torch.cuda.get_device_properties(0).minor}'
 
-from sphMath.sampling import buildDomainDescription, sampleDivergenceFreeNoise
-from sphMath.modules.adaptiveSmoothingASPH import n_h_to_nH
-from sphMath.plotting import visualizeParticles, updatePlot
-from sphMath.integration import getIntegrator, getIntegrationEnum
-from sphMath.util import volumeToSupport
-from sphMath.boundary import sampleDomainSDF
-from sphMath.kernels import Kernel_Scale, getKernelEnum
-from sphMath.sdf import getSDF, sdfFunctions, operatorDict, sampleSDF
-from sphMath.regions import buildRegion, filterRegion, plotRegions
-from sphMath.modules.timestep import computeTimestep
-from sphMath.schemes.initializers import initializeSimulation, updateBodyParticles
-from sphMath.schemes.deltaSPH import deltaPlusSPHScheme, DeltaPlusSPHSystem
-from sphMath.schema import getSimulationScheme
-from sphMath.enums import *
+from diffSPH.sampling import buildDomainDescription, sampleDivergenceFreeNoise
+from diffSPH.modules.adaptiveSmoothingASPH import n_h_to_nH
+from diffSPH.plotting import visualizeParticles, updatePlot
+from diffSPH.integration import getIntegrator, getIntegrationEnum
+from diffSPH.util import volumeToSupport
+from diffSPH.boundary import sampleDomainSDF
+from diffSPH.kernels import Kernel_Scale, getKernelEnum
+from diffSPH.sdf import getSDF, sdfFunctions, operatorDict, sampleSDF
+from diffSPH.regions import buildRegion, filterRegion, plotRegions
+from diffSPH.modules.timestep import computeTimestep
+from diffSPH.schemes.initializers import initializeSimulation, updateBodyParticles
+from diffSPH.schemes.deltaSPH import deltaPlusSPHScheme, DeltaPlusSPHSystem
+from diffSPH.schema import getSimulationScheme
+from diffSPH.enums import *
 import math
 import argparse
 
@@ -127,7 +127,7 @@ def setupExampleSimulation(simulationName, scheme, particleState, config, region
 
 # particles = copy.deepcopy(particleState)
 # particleSystem = DeltaPlusSPHSystem(domain, None, 0., copy.deepcopy(particleState), 'momentum', None, rigidBodies = rigidBodies, regions = config['regions'], config = config)
-from sphMath.io import saveState
+from diffSPH.io import saveState
 
 def runSimulation(simulationName, particleSystem, integrationScheme, simulationScheme, timesteps, dt, config, fig, axis, velocityPlot, densityPlot, uidPlot, initialEnergy, imagePrefix, plotInterval = 1, callBackFn = None, plotCallbackFn = None, outFile = None, exportInterval = 1):
 

@@ -1,4 +1,4 @@
-from sphMath.util import postProcess
+from diffSPH.util import postProcess
 import os
 
 exportName = f'18_flowPastSphere'

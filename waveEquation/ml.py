@@ -529,7 +529,7 @@ def buildMLPwDict(properties : dict):
     return mlp
 
 # from ml import *
-from sphMath.sphOperations.shared import scatter_sum
+from diffSPH.sphOperations.shared import scatter_sum
 
 class ScatterSumLayer(nn.Module):
     def __init__(self):
