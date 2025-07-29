@@ -8,18 +8,13 @@ diffSPH is an open-source Smoothed Particle Hydrodynamics simulation framework b
 The only major requirement for this solver is our companion software that handles the neighbor searching and related topics, which you can find more about [here](https://github.com/wi-re/torchCompactRadius). Other than that the solver is straightforward to setup and can also be used in Google colab
 
 ```
-conda create --name sphEnv python=3.12
-conda activate sphEnv
-conda install -c anaconda ipykernel -y
-conda install nvidia/label/cuda-12.8.1::cuda-toolkit cudnn
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-git clone https://https://github.com/wi-re/torchCompactRadius
-cd torchCompactRadius
-python setup.py develop
-cd ..
-https://github.com/tum-pbs/diffSPH
-cd diffSPH
-pip install -e .
+conda create -n diffSPHEnv python=3.12
+conda activate diffSPHEnv
+conda install nvidia/label/cuda-12.8.1::cuda-toolkit
+pip install toml scipy numba tqdm h5py matplotlib ipywidgets ipympl imageio scikit-image ipykernel
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install torchCompactRadius
+pip install diffSPH
 ```
 
 
