@@ -1,7 +1,9 @@
 ![](logov1.png)
 <!-- # diffSPH - A Framework for differentiable SPH Simulations -->
 
-diffSPH is an open-source Smoothed Particle Hydrodynamics simulation framework built for adjoint problem solving and machine learning applications. diffSPH is written mostly in Python using PyTorch but also supports C++/CUDA extensions. The fundamentally differentiable nature of diffSPH make it a versatile basis for many different applications of SPH. Stay tunes for more details on the applications and design of diffSPH! This is the solver at [https://diffsph.fluids.dev/](https://diffsph.fluids.dev/) .
+[![arXiv](https://img.shields.io/badge/arXiv-2507.21684-<COLOR>.svg)](https://arxiv.org/abs/2507.21684)
+
+diffSPH is an open-source Smoothed Particle Hydrodynamics simulation framework built for adjoint problem solving and machine learning applications. diffSPH is written mostly in Python using PyTorch but also supports C++/CUDA extensions. The fundamentally differentiable nature of diffSPH make it a versatile basis for many different applications of SPH. Stay tunes for more details on the applications and design of diffSPH! This is the solver at [https://diffsph.fluids.dev/](https://diffsph.fluids.dev/). You can also find the preprint of our paper on _diffSPH_ [here](https://arxiv.org/abs/2507.21684). 
 
 ## Installation
 
@@ -11,7 +13,7 @@ The only major requirement for this solver is our companion software that handle
 conda create -n diffSPHEnv python=3.12
 conda activate diffSPHEnv
 conda install nvidia/label/cuda-12.8.1::cuda-toolkit
-pip install toml scipy numba tqdm h5py matplotlib ipywidgets ipympl imageio scikit-image ipykernel
+pip install toml scipy numba tqdm h5py matplotlib ipywidgets ipympl imageio scikit-image ipykernel imageio_ffmpeg
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 pip install torchCompactRadius
 pip install diffSPH

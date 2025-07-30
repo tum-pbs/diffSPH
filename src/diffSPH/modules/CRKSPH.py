@@ -108,7 +108,7 @@ def computeCRKTerms(moments: KernelMoments, num_nbrs: torch.Tensor):
     is_singular = torch.where(m_2_det < 1e-6, 1.0, 0.0)
     #     # Eq. 12.
     # ai = 1.0/(m0 - dot(temp_vec, m1, d))
-    A = 1 / (m_0 - torch.einsum('nij, nj, ni -> n', m_2_inv, m_1, m_1))
+    A = 1 / (m_0 - torch.einsum('nij, ni, nj -> n', m_2_inv, m_1, m_1))
     # # Eq. 13.
     # mat_vec_mult(m2inv, m1, d, bi)
     # for gam in range(d):
@@ -121,18 +121,18 @@ def computeCRKTerms(moments: KernelMoments, num_nbrs: torch.Tensor):
     # print(gradA.shape, gradB.shape)
     nu = gradA.shape[1]
     gradATerm1 = dm_0dgamma
-    gradATerm2 = torch.einsum('nij, nj, nci -> nc', m_2_inv, m_1, dm_1dgamma)
-    gradATerm3 = torch.einsum('nij, ncj, ni -> nc', m_2_inv, dm_1dgamma, m_1)
-    gradATerm4 = torch.einsum('nad, ncde, neb, nb, na -> nc', m_2_inv, dm_2dgamma, m_2_inv, m_1, m_1)
-    gradA = - (A **2).view(-1,1) * ( gradATerm1 - gradATerm2 - gradATerm3 + gradATerm4)
+    gradATerm2 = torch.einsum('nij, nj, nki -> nk', m_2_inv, m_1, dm_1dgamma)
+    # gradATerm3 = torch.einsum('nij, ncj, ni -> nc', m_2_inv, dm_1dgamma, m_1)
+    gradATerm4 = torch.einsum('nil, nklm, nmj, nj, ni -> nk', m_2_inv, dm_2dgamma, m_2_inv, m_1, m_1)
+    gradA = - (A **2).view(-1,1) * ( gradATerm1 - 2 * gradATerm2 + gradATerm4)
 
-    gradBTerm1 = torch.einsum('nab, ncb -> nca', m_2_inv, dm_1dgamma)
-    gradBTerm2 = torch.einsum('nad, ncde, neb, nb -> nca', m_2_inv, dm_2dgamma, m_2_inv, m_1)
+    gradBTerm1 = torch.einsum('nij, nkj -> nki', m_2_inv, dm_1dgamma)
+    gradBTerm2 = torch.einsum('nil, nklm, nmj, nj -> nki', m_2_inv, dm_2dgamma, m_2_inv, m_1)
     gradB = -gradBTerm1 + gradBTerm2
 
     # num_nbrs = coo_to_csr(actualNeighbors).rowEntries
 
-    mask = (num_nbrs < 2) | (is_singular > 0.0)
+    mask = (num_nbrs < 2) #| (is_singular > 0.0)
 
     # if N_NBRS < 2 or is_singular > 0.0:
     # d_ai[d_idx] = 1.0
@@ -207,6 +207,7 @@ def computeVelocityTensor(
     V_j = particles.apparentArea[j]
     
     gradW_ij = evalKernelGradient(neighborhood[1], supportScheme=supportScheme, combined=True)
+    gradW_ij = correctedGradientKernel(particles.A[i], particles.B[i], particles.gradA[i], particles.gradB[i], neighborhood[1])
 
     # gradW_ij = correctedGradientKernel(x_ij, h_i, h_j, kernel, particles_a.A[i], particles_a.B[i], particles_a.gradA[i], particles_a.gradB[i])
     term = V_j.view(-1,1,1) * torch.einsum('na, nb -> nab', v_ij, gradW_ij)
@@ -218,8 +219,8 @@ def limiterVL(x):
     vL = 2 / (1 + x)
     return torch.where(x > 0, x * vL**2, 0.0)
 
-def computeVanLeer(xij, DvDxi, DvDxj):
-    xij = 0.5 * (xij)
+def computeVanLeer(xij_, DvDxi, DvDxj):
+    xij = 0.5 * (xij_)
     gradi = torch.einsum('na, na -> n', torch.einsum('nab, nb -> na', DvDxi, xij), xij)
     gradj = torch.einsum('na, na -> n', torch.einsum('nab, nb -> na', DvDxj, xij), xij)
 
@@ -285,9 +286,9 @@ def computeCRKAccel(
     gradW_ij = correctedGradientKernel(particles.A[i], particles.B[i], particles.gradA[i], particles.gradB[i], neighborhood[1])
     gradW_ji = correctedGradientKernel(particles.A[j], particles.B[j], particles.gradA[j], particles.gradB[j], neighborhood[1], xji=True)
     gradW = gradW_ij - gradW_ji
-    W_ij = correctedKernel(particles.A[i], particles.B[i], neighborhood[1])
-    W_ji = correctedKernel(particles.A[j], particles.B[j], neighborhood[1], xji=True)
-    W = W_ij + W_ji
+    # W_ij = correctedKernel(particles.A[i], particles.B[i], neighborhood[1])
+    # W_ji = correctedKernel(particles.A[j], particles.B[j], neighborhood[1], xji=True)
+    # W = W_ij #+ W_ji
 
     # W = evalKernel(neighborhood[1], supportScheme=supportScheme, combined=True)
     # gradW = evalKernelGradient(neighborhood[1], supportScheme=supportScheme, combined=True)
@@ -326,13 +327,14 @@ def computeCRKAccel(
 
     # phi_ij = (4 * r_ij_hat / (1 + r_ij_hat)**2).clamp(0, 1) * factor
     phi_ij = computeVanLeer(x_ij, velocityTensor[i], velocityTensor[j]) * factor
+    print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
     # phi_ij[:] = 0
     
     if torch.any(phi_ij < -0.01) or torch.any(phi_ij > 1.01):
         print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
 
     phi_ij = phi_ij.clamp(0, 1)
-    # phi_ij[:] = 1
+    # phi_ij[:] = 0
 
     # "Mike Method", see Spheral, LimitedMonaghanGingoldViscosity
     v_i_hat = v_i - phi_ij.view(-1,1) / 2 * torch.einsum('nba, na -> nb', velocityTensor[i], x_ij)
@@ -349,14 +351,21 @@ def computeCRKAccel(
     
     vx_ij_hat_i = torch.einsum('ij, ij -> i', v_ij_hat, eta_i)
     vx_ij_hat_j = torch.einsum('ij, ij -> i', v_ij_hat, eta_j)#.clamp(max = 0)
-    vx_ij_hat = torch.einsum('ij, ij -> i', v_ij_hat, x_ij)
+    # vx_ij_hat = torch.einsum('ij, ij -> i', v_ij_hat, x_ij)
     
     # print(f'vx_ij: min: {vx_ij.min():8.3g}, max: {vx_ij.max():8.3g} has nan: {torch.isnan(vx_ij).any()} has inf: {torch.isinf(vx_ij).any()}, shape: {vx_ij.shape}')
     # print(f'vx_ij_hat: min: {vx_ij_hat.min():8.3g}, max: {vx_ij_hat.max():8.3g} has nan: {torch.isnan(vx_ij_hat).any()} has inf: {torch.isinf(vx_ij_hat).any()}, shape: {vx_ij_hat.shape}')
     
 
-    mu_i = (vx_ij_hat_i / (torch.einsum('ni, ni -> n', eta_i, eta_i) + 1e-14 * h_i ** 2)).clamp(max = 0)
-    mu_j = (vx_ij_hat_j / (torch.einsum('ni, ni -> n', eta_j, eta_j) + 1e-14 * h_j ** 2)).clamp(max = 0)
+    mu_i = (vx_ij_hat_i / (torch.einsum('ni, ni -> n', eta_i, eta_i) + 1e-14 * h_i ** 2))
+    mu_j = (vx_ij_hat_j / (torch.einsum('ni, ni -> n', eta_j, eta_j) + 1e-14 * h_j ** 2))
+
+    mu_i = mu_i.clamp(max = 0)
+    mu_j = mu_j.clamp(max = 0)
+
+
+    print(f'mu_i: min: {mu_i.min():8.3g}, max: {mu_i.max():8.3g} has nan: {torch.isnan(mu_i).any()} has inf: {torch.isinf(mu_i).any()}, shape: {mu_i.shape}')
+    print(f'mu_j: min: {mu_j.min():8.3g}, max: {mu_j.max():8.3g} has nan: {torch.isnan(mu_j).any()} has inf: {torch.isinf(mu_j).any()}, shape: {mu_j.shape}')
 
     correctXi = getSetConfig(config, 'diffusion', 'correctXi', True)
 
@@ -370,7 +379,7 @@ def computeCRKAccel(
     C_q = getSetConfig(config, 'diffusion', 'C_q', 1)
     Q_i = rho_i * (-C_l * c_i * mu_i + C_q * mu_i ** 2)
     Q_j = rho_j * (-C_l * c_j * mu_j + C_q * mu_j ** 2)
-    
+
     term = V_i * V_j * (P_i + P_j + Q_i + Q_j)
     # term = V_i * V_j * (P_i + P_j)
     term = term.view(-1,1) * gradW

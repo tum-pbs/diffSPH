@@ -88,8 +88,8 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
         particles.A, particles.B, particles.gradA, particles.gradB = computeCRKTerms(kernelMoments, particles.numNeighbors)
 
     with record_function("[PESPH] - 06 - Compute Density"):
-        if not hadDensity:
-            particles.densities = computeCRKDensity(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
+        # if not hadDensity:
+        particles.densities = computeCRKDensity(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
 
     # if 'diffusionSwitch' in config and config['diffusionSwitch']['scheme'] is not None:
     #     with record_function("[CompSPH] - 05.5 - Cullen Dehnen Viscosity Terms"):

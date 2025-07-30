@@ -1169,22 +1169,39 @@ def evalKernelDkDh(PrecomputedKernel: PrecomputedNeighborhood, supportScheme: Su
 
 def correctedKernel(A, B, kernelValues : PrecomputedNeighborhood, supportScheme: SupportScheme = SupportScheme.SuperSymmetric, xji: bool = False):
     fac = -1 if xji else 1
-    prod = torch.einsum('...i, ...j -> ...', B, fac * kernelValues.x_ij)
+    prod = torch.einsum('...i, ...i -> ...', B, fac * kernelValues.x_ij)
     W_ij = evalKernel(kernelValues, supportScheme=supportScheme, combined=True)
     return A * (1 + prod) * W_ij
 
 def correctedGradientKernel(A, B, gradA, gradB, kernelValues : PrecomputedNeighborhood, supportScheme: SupportScheme = SupportScheme.SuperSymmetric, xji: bool = False):
     fac = -1 if xji else 1
     W_ij = evalKernel(kernelValues, supportScheme=supportScheme, combined=True)
-    gradW_ij = fac * evalKernelGradient(kernelValues, supportScheme=supportScheme, combined=True)
+    gradW_ij = evalKernelGradient(kernelValues, supportScheme=supportScheme, combined=True)
     
     dotProd = lambda a, b: torch.einsum('...i, ...j -> ...', a, b)
+    dot_ii = lambda a, b: torch.einsum('...i, ...i -> ...', a, b)
     
-    firstTerm = (A * (1 + dotProd(B, fac * kernelValues.x_ij))).view(-1,1) * gradW_ij
-    secondTerm = gradA * ((1 + dotProd(B, fac * kernelValues.x_ij)) * W_ij).view(-1,1)
-    thirdTerm = (torch.einsum('...ca,...a -> ...c', gradB, fac * kernelValues.x_ij) + B) * (W_ij * A).view(-1,1)
+    # term 1 :A B^k W_ab
+    # term 2: A (1 + B^i x_ij^i) gradW
+    # term 3: (1 + B^i x_ij^i) W (partial_k A)
+    # term 4: A (x_ij^i partial_k B^i) W
 
-    return firstTerm + secondTerm + thirdTerm
+    x_ij = kernelValues.x_ij
+    # if xji:
+        # x_ij = -x_ij
+
+    term1 = A.view(-1,1) * B * W_ij.view(-1,1)
+    term2 = fac * (A * (1 + fac * dot_ii(B, x_ij))).view(-1,1) * gradW_ij
+    term3 = (1 + fac * dot_ii(B, x_ij)).view(-1,1) * W_ij.view(-1,1) * gradA
+    term4 = fac * A.view(-1,1) * (torch.einsum('...a,...ca -> ...c', x_ij, gradB)) * W_ij.view(-1,1)
+
+    # print(f'GradW_ij: {gradW_ij.shape}, A: {A.shape}, B: {B.shape}, kernelValues.x_ij: {kernelValues.x_ij.shape}')
+    # print(f'Term1: {term1}')
+    # print(f'Term2: {term2}')
+    # print(f'Term3: {term3}')
+    # print(f'Term4: {term4}')
+
+    return term1 + term2 + term3 + term4
 
 
 def correctedKernel_CRK(i, j, A, B, x_ij, W_ij, xji: bool = False):
