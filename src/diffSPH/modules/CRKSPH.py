@@ -204,10 +204,10 @@ def computeVelocityTensor(
     v_j = particles.velocities[j]
     v_ij = v_i - v_j
     
-    V_j = particles.apparentArea[j]
+    V_j = particles.masses[j]
     
     gradW_ij = evalKernelGradient(neighborhood[1], supportScheme=supportScheme, combined=True)
-    gradW_ij = correctedGradientKernel(particles.A[i], particles.B[i], particles.gradA[i], particles.gradB[i], neighborhood[1])
+    # gradW_ij = correctedGradientKernel(particles.A[i], particles.B[i], particles.gradA[i], particles.gradB[i], neighborhood[1])
 
     # gradW_ij = correctedGradientKernel(x_ij, h_i, h_j, kernel, particles_a.A[i], particles_a.B[i], particles_a.gradA[i], particles_a.gradB[i])
     term = V_j.view(-1,1,1) * torch.einsum('na, nb -> nab', v_ij, gradW_ij)
@@ -327,7 +327,7 @@ def computeCRKAccel(
 
     # phi_ij = (4 * r_ij_hat / (1 + r_ij_hat)**2).clamp(0, 1) * factor
     phi_ij = computeVanLeer(x_ij, velocityTensor[i], velocityTensor[j]) * factor
-    print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
+    # print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
     # phi_ij[:] = 0
     
     if torch.any(phi_ij < -0.01) or torch.any(phi_ij > 1.01):
@@ -364,8 +364,8 @@ def computeCRKAccel(
     mu_j = mu_j.clamp(max = 0)
 
 
-    print(f'mu_i: min: {mu_i.min():8.3g}, max: {mu_i.max():8.3g} has nan: {torch.isnan(mu_i).any()} has inf: {torch.isinf(mu_i).any()}, shape: {mu_i.shape}')
-    print(f'mu_j: min: {mu_j.min():8.3g}, max: {mu_j.max():8.3g} has nan: {torch.isnan(mu_j).any()} has inf: {torch.isinf(mu_j).any()}, shape: {mu_j.shape}')
+    # print(f'mu_i: min: {mu_i.min():8.3g}, max: {mu_i.max():8.3g} has nan: {torch.isnan(mu_i).any()} has inf: {torch.isinf(mu_i).any()}, shape: {mu_i.shape}')
+    # print(f'mu_j: min: {mu_j.min():8.3g}, max: {mu_j.max():8.3g} has nan: {torch.isnan(mu_j).any()} has inf: {torch.isinf(mu_j).any()}, shape: {mu_j.shape}')
 
     correctXi = getSetConfig(config, 'diffusion', 'correctXi', True)
 
@@ -377,6 +377,10 @@ def computeCRKAccel(
     
     C_l = getSetConfig(config, 'diffusion', 'C_l', 2)
     C_q = getSetConfig(config, 'diffusion', 'C_q', 1)
+
+    C_l = 1
+    C_q = 2
+
     Q_i = rho_i * (-C_l * c_i * mu_i + C_q * mu_i ** 2)
     Q_j = rho_j * (-C_l * c_j * mu_j + C_q * mu_j ** 2)
 
