@@ -215,11 +215,12 @@ def computeVelocityTensor(
     
     V_j = particles.masses[j]
     
-    # gradW_ij = evalKernelGradient(neighborhood[1], supportScheme=supportScheme, combined=True)
-    gradW_ij = correctedGradientKernel(particles.A[i], particles.B[i], particles.gradA[i], particles.gradB[i], neighborhood[1])
-    gradW_ji = -correctedGradientKernel(particles.A[j], particles.B[j], particles.gradA[j], particles.gradB[j], neighborhood[1], xji=True)
+    gradW_ij = evalKernelGradient(neighborhood[1], supportScheme=supportScheme, combined=True)
+    # gradW_ij = correctedGradientKernel(particles.A[i], particles.B[i], particles.gradA[i], particles.gradB[i], neighborhood[1])
+    # gradW_ji = -correctedGradientKernel(particles.A[j], particles.B[j], particles.gradA[j], particles.gradB[j], neighborhood[1], xji=True)
     
-    gradW = (gradW_ij + gradW_ji) / 2
+    # gradW = (gradW_ij - gradW_ji) / 2
+    gradW = gradW_ij
 
     # gradW_ij = correctedGradientKernel(x_ij, h_i, h_j, kernel, particles_a.A[i], particles_a.B[i], particles_a.gradA[i], particles_a.gradB[i])
     term = V_j.view(-1,1,1) * torch.einsum('na, nb -> nab', v_ij, gradW)
@@ -234,7 +235,7 @@ def limiterVL(x):
 def computeVanLeer(xij_, DvDxi, DvDxj):
     xij = 0.5 * (xij_)
     gradi = torch.einsum('na, na -> n', torch.einsum('nab, nb -> na', DvDxi, xij), xij)
-    gradj = torch.einsum('na, na -> n', torch.einsum('nab, nb -> na', -DvDxj, xij), xij)
+    gradj = torch.einsum('na, na -> n', torch.einsum('nab, nb -> na', DvDxj, xij), xij)
 
     rif = gradj.sgn() * gradj.abs().clamp(min = 1e-30)
     rjf = gradi.sgn() * gradi.abs().clamp(min = 1e-30)
@@ -304,8 +305,8 @@ def computeCRKAccel(
     # gradW_ji = evalKernelGradient(neighborhood[1], supportScheme=supportScheme, combined=True)
     # gradW = gradW_ij + gradW_ji
     
-    # gradW_ij = correctedGradientKernel(particles.A[i], particles.B[i], particles.gradA[i], particles.gradB[i], neighborhood[1])
-    # gradW_ji = -correctedGradientKernel(particles.A[j], particles.B[j], particles.gradA[j], particles.gradB[j], neighborhood[1], xji=True)
+    gradW_ij = correctedGradientKernel(particles.A[i], particles.B[i], particles.gradA[i], particles.gradB[i], neighborhood[1])
+    gradW_ji = -correctedGradientKernel(particles.A[j], particles.B[j], particles.gradA[j], particles.gradB[j], neighborhood[1], xji=True)
     # gradW = gradW_ij - gradW_ji
     
     # gradW = gradW_ij
@@ -316,9 +317,9 @@ def computeCRKAccel(
     # print(f'gradW_ji: {gradW_ji.min():8.3g}, {gradW_ji.max():8.3g}, {gradW_ji.mean():8.3g} has nan: {torch.isnan(gradW_ji).any()} has inf: {torch.isinf(gradW_ji).any()}')
     # print(f'gradW: {gradW.min():8.3g}, {gradW.max():8.3g}, {gradW.mean():8.3g} has nan: {torch.isnan(gradW).any()} has inf: {torch.isinf(gradW).any()}')    
     
-    gradW_i, gradW_j = evalKernelGradient(neighborhood[1], SupportScheme.Symmetric, False)
-    gradW_ij = gradW_i
-    gradW_ji = gradW_j
+    # gradW_i, gradW_j = evalKernelGradient(neighborhood[1], SupportScheme.Symmetric, False)
+    # gradW_ij = gradW_i
+    # gradW_ji = gradW_j
     # gradW = gradW_i + gradW_j
 
     # print(f'gradW_ij: {gradW_i.min():8.3g}, {gradW_i.max():8.3g}, {gradW_i.mean():8.3g} has nan: {torch.isnan(gradW_i).any()} has inf: {torch.isinf(gradW_i).any()}')
@@ -365,18 +366,18 @@ def computeCRKAccel(
     factor = torch.where(eta_ij < eta_crit, torch.exp(- ((eta_ij - eta_crit)/eta_fold)**2), torch.ones_like(eta_ij))
 
     # phi_ij = (4 * r_ij_hat / (1 + r_ij_hat)**2).clamp(0, 1) * factor
-    phi_ij = computeVanLeer(x_ij, velocityTensor[i], velocityTensor[j]) 
+    phi_ij = computeVanLeer(x_ij / particles.supports[i].view(-1,1), velocityTensor[i], velocityTensor[j]) 
     # print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
     # phi_ij[:] = 0
     
     if torch.any(phi_ij < -0.01) or torch.any(phi_ij > 1.01):
         print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
-    # print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
+    print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
     # print(f'factor: min: {factor.min():8.3g}, max: {factor.max():8.3g}, mean {factor.mean():8.3g} has nan: {torch.isnan(factor).any()} has inf: {torch.isinf(factor).any()}')
-    phi_ij = phi_ij * factor
+    phi_ij = phi_ij #* factor
 
     phi_ij = phi_ij.clamp(0, 1)
-    phi_ij[:] = 0.0
+    phi_ij[:] = 0.50
 
     # "Mike Method", see Spheral, LimitedMonaghanGingoldViscosity
     v_i_hat = v_i - phi_ij.view(-1,1) / 2 * torch.einsum('nba, na -> nb', velocityTensor[i], x_ij)
@@ -537,10 +538,10 @@ def computeCRKAccel(
     # viscosityTerm = 1/2 * (Q_i * gradW_i + Q_j * gradW_j) * particles.masses[j].view(-1,1)
     # pressureTerm =      (P[i] * gradW_i + P[j] * gradW_j) * particles.masses[j].view(-1,1)
     
-    av_i = -1/2 * (Q_i.view(-1,1) * gradW_i) * V_j.view(-1,1)
-    av_j = -1/2 * (Q_j.view(-1,1) * gradW_j) * V_j.view(-1,1)
-    ap_i = -     (P[i] * gradW_i) * particles.masses[j].view(-1,1)
-    ap_j = -     (P[j] * gradW_j) * particles.masses[j].view(-1,1)
+    # av_i = -1/2 * (Q_i.view(-1,1) * gradW_i) * V_j.view(-1,1)
+    # av_j = -1/2 * (Q_j.view(-1,1) * gradW_j) * V_j.view(-1,1)
+    # ap_i = -     (P[i] * gradW_i) * particles.masses[j].view(-1,1)
+    # ap_j = -     (P[j] * gradW_j) * particles.masses[j].view(-1,1)
     # print(f'av_i: min: {av_i.min():8.3g}, max: {av_i.max():8.3g}, mean {av_i.mean():8.3g} has nan: {torch.isnan(av_i).any()} has inf: {torch.isinf(av_i).any()}')
     # print(f'av_j: min: {av_j.min():8.3g}, max: {av_j.max():8.3g}, mean {av_j.mean():8.3g} has nan: {torch.isnan(av_j).any()} has inf: {torch.isinf(av_j).any()}')  
     # P_i = V_i * V_j * P_i / (particles.masses[i] **2)
@@ -553,14 +554,14 @@ def computeCRKAccel(
     
     
     # a_ij = - (1 / (2 * particles.masses[i])).view(-1,1) * term
-    ap_ij = ap_i + ap_j
-    av_ij = av_i + av_j
+    ap_ij = ap_i_crk + ap_j_crk
+    av_ij = av_i_crk + av_j_crk
     a_ij = ap_ij + av_ij
 
 
     term[torch.linalg.norm(x_ij, dim = -1) / torch.maximum(h_i, h_j) > 1] = 0.0
 
-    return a_ij, scatter_max(phi_ij, i, dim = 0, dim_size=particles.positions.shape[0])[0], ap_i, ap_j, av_i, av_j
+    return a_ij, scatter_max(phi_ij, i, dim = 0, dim_size=particles.positions.shape[0])[0], ap_i_crk, ap_j_crk, av_i_crk, av_j_crk
 
 def computeCRKdvdt(
         particles: Union[CompressibleState, WeaklyCompressibleState],

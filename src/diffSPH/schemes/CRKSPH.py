@@ -127,13 +127,13 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
     
         # But this does not seem to be working in 1D?
         # verbosePrint(verbose, '[Cullen]\t\tComputing M')
-        if config['domain'].dim > 1:
-            M = computeM(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
-            M_inv = torch.linalg.pinv(M)     
+        # if config['domain'].dim > 1:
+        #     M = computeM(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
+        #     M_inv = torch.linalg.pinv(M)     
 
-            velocityTensor = torch.einsum('ijk, ikl -> ijl', velocityTensor, M_inv)
-        else:
-            velocityTensor = velocityTensor / particles.densities.view(-1, 1, 1)
+        #     velocityTensor = torch.einsum('ijk, ikl -> ijl', velocityTensor, M_inv)
+        # else:
+        velocityTensor = velocityTensor / particles.densities.view(-1, 1, 1)
 
 
     with record_function("[CompSPH] - 06 - Compute Acceleration"):
