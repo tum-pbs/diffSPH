@@ -222,35 +222,35 @@ def evaluateOptimalSupport(
             neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], kernel_, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood)
             numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'noghost')).rowEntries
 
-            if (numNeighbors.max() > 60):
-                print(f'Warning: Number of neighbors is too high: {numNeighbors.max().item()}')
-                neighs = neighbors.get('noghost')
-                kernelValues = neighs[1]
-                print('r_ij:', kernelValues.r_ij.min().item(), kernelValues.r_ij.max().item(), kernelValues.r_ij.mean().item())
-                print('x_ij:', kernelValues.x_ij.min().item(), kernelValues.x_ij.max().item(), kernelValues.x_ij.mean().item())
+            # if (numNeighbors.max() > 60):
+            #     print(f'Warning: Number of neighbors is too high: {numNeighbors.max().item()}')
+            #     neighs = neighbors.get('noghost')
+            #     kernelValues = neighs[1]
+            #     print('r_ij:', kernelValues.r_ij.min().item(), kernelValues.r_ij.max().item(), kernelValues.r_ij.mean().item())
+            #     print('x_ij:', kernelValues.x_ij.min().item(), kernelValues.x_ij.max().item(), kernelValues.x_ij.mean().item())
 
-                print('h_ij:', particles.supports.min().item(), particles.supports.max().item(), particles.supports.mean().item())
-                print('ddh_W_i:', kernelValues.ddh_W_i.min().item(), kernelValues.ddh_W_i.max().item(), kernelValues.ddh_W_i.mean().item())
+            #     print('h_ij:', particles.supports.min().item(), particles.supports.max().item(), particles.supports.mean().item())
+            #     print('ddh_W_i:', kernelValues.ddh_W_i.min().item(), kernelValues.ddh_W_i.max().item(), kernelValues.ddh_W_i.mean().item())
 
-            if (numNeighbors.min() < 40):
-                print('Iteration', i, 'has particles with too few neighbors:')
-                mask = numNeighbors < 40
-                neighs = neighbors.get('noghost')
+            # if (numNeighbors.min() < 40):
+            #     print('Iteration', i, 'has particles with too few neighbors:')
+            #     mask = numNeighbors < 40
+            #     neighs = neighbors.get('noghost')
                 
-                indices = torch.arange(particles.positions.shape[0], device=particles.positions.device, dtype=torch.int64)
-                indices = indices[mask]
+            #     indices = torch.arange(particles.positions.shape[0], device=particles.positions.device, dtype=torch.int64)
+            #     indices = indices[mask]
                 
-                for index in indices:
-                    print(f'Warning: Particle {index} has too few neighbors: {numNeighbors[index].item()}')
-                    print(f'Position: {particles.positions[index].cpu().numpy()}')
-                    print(f'Support: {particles.supports[index].item()}')
-                    print(f'Density: {particles.densities[index].item()}')
-                    particle_neighbors = neighs[0].col[neighs[0].row == index]
-                    print(f'Neighbors: {particle_neighbors.cpu().numpy()}')
-                    print(f'Neighbor Positions: {particles.positions[particle_neighbors].cpu().numpy()}')
-                    print(f'Neighbor Supports: {particles.supports[particle_neighbors].cpu().numpy()}')
-                    print(f'Neighbor Densities: {particles.densities[particle_neighbors].cpu().numpy()}')
-                    print('---')
+            #     for index in indices:
+            #         print(f'Warning: Particle {index} has too few neighbors: {numNeighbors[index].item()}')
+            #         print(f'Position: {particles.positions[index].cpu().numpy()}')
+            #         print(f'Support: {particles.supports[index].item()}')
+            #         print(f'Density: {particles.densities[index].item()}')
+            #         particle_neighbors = neighs[0].col[neighs[0].row == index]
+            #         print(f'Neighbors: {particle_neighbors.cpu().numpy()}')
+            #         print(f'Neighbor Positions: {particles.positions[particle_neighbors].cpu().numpy()}')
+            #         print(f'Neighbor Supports: {particles.supports[particle_neighbors].cpu().numpy()}')
+            #         print(f'Neighbor Densities: {particles.densities[particle_neighbors].cpu().numpy()}')
+            #         print('---')
 
             # neighborhood_, sparseNeighborhood = buildNeighborhood(particles, particles, config['domain'], verletScale= verletScale, mode =supportMode, priorNeighborhood=neighborhood_, verbose = False, neighborhoodAlgorithm = config['neighborhood']['algorithm'])
             # actualNeighbors = filterNeighborhood(neighborhood_)

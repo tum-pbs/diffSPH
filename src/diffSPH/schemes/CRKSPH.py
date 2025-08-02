@@ -74,10 +74,10 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
 
     verbosePrint(verbose, '[CompSPH]\tNeighborsearch')
     with record_function("[CompSPH] - 02 - Neighborsearch"):
-        neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], wrappedKernel, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood)
+        neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], wrappedKernel, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=None)
         particles.numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'noghost')).rowEntries
 
-        r_ij, x_ij = computeDistanceTensor(neighborhood, normalize = False, mode = 'gather')
+        # r_ij, x_ij = computeDistanceTensor(neighborhood, normalize = False, mode = 'gather')
         # print(f'Number of neighbors: {particles.numNeighbors.min().item()} - {particles.numNeighbors.max().item()} - {particles.numNeighbors.median().item()}')
         # print(f'r_ij: {r_ij.min().item()} - {r_ij.max().item()} - {r_ij.mean().item()}')
         # print(f'supports: {particles.supports.min().item()} - {particles.supports.max().item()} - {particles.supports.mean().item()}')
@@ -93,8 +93,8 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
         particles.A, particles.B, particles.gradA, particles.gradB = computeCRKTerms(kernelMoments, particles.numNeighbors)
 
     with record_function("[PESPH] - 06 - Compute Density"):
-        # if not hadDensity:
-        particles.densities = computeCRKDensity(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
+        if not hadDensity:
+            particles.densities = computeCRKDensity(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
 
     # if 'diffusionSwitch' in config and config['diffusionSwitch']['scheme'] is not None:
     #     with record_function("[CompSPH] - 05.5 - Cullen Dehnen Viscosity Terms"):

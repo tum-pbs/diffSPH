@@ -940,8 +940,13 @@ def updatePlot(plotState, particles: Union[ParticleSet, ParticleSetWithQuantity]
         grid_uy, quant_uy = mapToGrid(fluidParticles, inputQuantity[:, 1], domain, kernel, gridResolution)
 
         # print(grid_ux.shape, quant_ux.shape)
-        keep = lambda x: not isinstance(x, mpl.patches.FancyArrowPatch)
-        axis.patches = [patch for patch in axis.patches if keep(patch)]
+        for patch in axis.patches[:]:
+            # print(patch)
+            if isinstance(patch, mpl.patches.FancyArrowPatch):
+                patch.remove()
+        for c in list(axis.collections):
+            if isinstance(c, mpl.collections.LineCollection):
+                c.remove()
         # raise ValueError('Streamlines not implemented yet')
 
 
