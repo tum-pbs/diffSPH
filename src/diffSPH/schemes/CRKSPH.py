@@ -82,6 +82,14 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
         # print(f'r_ij: {r_ij.min().item()} - {r_ij.max().item()} - {r_ij.mean().item()}')
         # print(f'supports: {particles.supports.min().item()} - {particles.supports.max().item()} - {particles.supports.mean().item()}')
     
+    with record_function("[CompSPH] - 03 - Compute Density"):
+        if not hadDensity:
+            verbosePrint(verbose, '[CompSPH]\tComputing Density')
+            particles.densities = computeDensity(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
+        else:
+            verbosePrint(verbose, '[CompSPH]\tDensity computed in previous step')
+            
+            
     with record_function("[PESPH] - 03 - Compute Volumes"):
         particles.omega = torch.ones_like(particles.masses)
         particles.apparentArea = computeCRKVolume(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
@@ -93,20 +101,25 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
         particles.A, particles.B, particles.gradA, particles.gradB = computeCRKTerms(kernelMoments, particles.numNeighbors)
 
     with record_function("[PESPH] - 06 - Compute Density"):
-        if not hadDensity:
-            particles.densities = computeCRKDensity(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
+        # if not hadDensity:
+        particles.densities = computeCRKDensity(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
 
-    # if 'diffusionSwitch' in config and config['diffusionSwitch']['scheme'] is not None:
-    #     with record_function("[CompSPH] - 05.5 - Cullen Dehnen Viscosity Terms"):
-    #         verbosePrint(verbose, '[CompSPH]\tComputing Cullen Terms')
-    #         particles.alphas, switchState = computeViscositySwitch(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config, dt)   
-
-    with record_function("[deltaSPH] - 05 - Dirichlet BC"):
-        particles = enforceDirichlet(particles, config, SPHSystem.t, dt)    
+    # with record_function("[deltaSPH] - 05 - Dirichlet BC"):
+    #     particles = enforceDirichlet(particles, config, SPHSystem.t, dt)    
+        
     with record_function("[CompSPH] - 05 - Compute EOS"):
         verbosePrint(verbose, '[CompSPH]\tComputing EOS')
         particles.entropies, _, particles.pressures, particles.soundspeeds  = idealGasEOS(A = None, u = particles.internalEnergies, P = None, rho = particles.densities, gamma = config['fluid']['gamma'])
         particles.pressures                                                 = particles.pressures + config['backgroundPressure'] if 'backgroundPressure' in config else particles.pressures
+
+    with record_function("[CompSPH] - 04 - Compute Omega"):
+        if config['correctiveOmega']:
+            verbosePrint(verbose, '[CompSPH]\tComputing gradH Terms')
+            particles.omega = computeOmega(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
+        else:
+            verbosePrint(verbose, '[CompSPH]\tNo gradH Correction')
+            particles.omega = torch.ones_like(particles.densities)
+
 
     with record_function("[PESPH] - 08 - Compute Velocity Tensor"):
         # Correct with M, based on SPHeral artificial viscosity handle.cc 294+
@@ -122,10 +135,21 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
         else:
             velocityTensor = velocityTensor / particles.densities.view(-1, 1, 1)
 
-    with record_function("[PESPH] - 09 - Compute Acceleration"):
+
+    with record_function("[CompSPH] - 06 - Compute Acceleration"):
+        verbosePrint(verbose, '[CompSPH]\tComputing Acceleration')
         # dvdt, ap_ij, av_ij = compSPH_acceleration(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
         dvdt, _, ap_ij, av_ij = computeCRKdvdt(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config, velocityTensor)
         
+    # with record_function("[CompSPH] - 07 - Compute Energy Update"):
+    #     verbosePrint(verbose, '[CompSPH]\tComputing Energy Update')
+    #     dudt = compSPH_dudt(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
+
+    with record_function("[PESPH] - 10 - Compute Energy Equation"):
+        dudt = computeCRKdudt(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config, velocityTensor, dvdt, dt)
+
+    with record_function("[CompSPH] - 08 - Compute Work Terms"):
+        verbosePrint(verbose, '[CompSPH]\tComputing Halfstep Velocity')
         particles.ap_ij = ap_ij
         particles.av_ij = av_ij
         v_halfstep = particles.velocities + 0.5 * dt * dvdt
@@ -133,8 +157,20 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
         verbosePrint(verbose, '[CompSPH]\tComputing Work Distribution')
         particles.f_ij = compute_fij(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config, dt, v_halfstep, ap_ij, av_ij)
 
-    with record_function("[PESPH] - 10 - Compute Energy Equation"):
-        dudt = computeCRKdudt(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config, velocityTensor, dvdt, dt)
+
+    # with record_function("[PESPH] - 09 - Compute Acceleration"):
+    #     # dvdt, ap_ij, av_ij = compSPH_acceleration(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
+    #     dvdt, _, ap_ij, av_ij = computeCRKdvdt(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config, velocityTensor)
+        
+    #     particles.ap_ij = ap_ij
+    #     particles.av_ij = av_ij
+    #     v_halfstep = particles.velocities + 0.5 * dt * dvdt
+
+    #     verbosePrint(verbose, '[CompSPH]\tComputing Work Distribution')
+    #     particles.f_ij = compute_fij(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config, dt, v_halfstep, ap_ij, av_ij)
+
+    # with record_function("[PESPH] - 10 - Compute Energy Equation"):
+    #     dudt = computeCRKdudt(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config, velocityTensor, dvdt, dt)
 
         # dudt = compSPH_dudt(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
 

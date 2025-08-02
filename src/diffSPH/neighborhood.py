@@ -1200,6 +1200,16 @@ def correctedGradientKernel(A, B, gradA, gradB, kernelValues : PrecomputedNeighb
     # print(f'Term2: {term2}')
     # print(f'Term3: {term3}')
     # print(f'Term4: {term4}')
+    
+    print(f'term1: min {term1.min()}, max {term1.max()}, mean {term1.mean()}')
+    print(f'term2: min {term2.min()}, max {term2.max()}, mean {term2.mean()}')
+    print(f'term3: min {term3.min()}, max {term3.max()}, mean {term3.mean()}')
+    print(f'term4: min {term4.min()}, max {term4.max()}, mean {term4.mean()}')
+    
+    summed = term1 + term2 + term3 + term4
+    print(f'summed: min {summed.min()}, max {summed.max()}, mean {summed.mean()}')
+    
+    print(f'gradW_ij: min {gradW_ij.min()}, max {gradW_ij.max()}, mean {gradW_ij.mean()}')
 
     return term1 + term2 + term3 + term4
 

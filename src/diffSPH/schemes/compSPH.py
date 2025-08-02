@@ -127,10 +127,10 @@ def compSPHScheme(SPHSystem : CompSPHSystem, dt : float, config : dict, verbose 
         neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], wrappedKernel, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood, computeDkDh = True, computeHessian = False, useCheckpoint=False)
         particles.numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'noghost')).rowEntries
 
-        r_ij, x_ij = computeDistanceTensor(neighborhood, normalize = False, mode = 'gather')
-        print(f'Number of neighbors: {particles.numNeighbors.min().item()} - {particles.numNeighbors.max().item()} - {particles.numNeighbors.median().item()}')
-        print(f'r_ij: {r_ij.min().item()} - {r_ij.max().item()} - {r_ij.mean().item()}')
-        print(f'supports: {particles.supports.min().item()} - {particles.supports.max().item()} - {particles.supports.mean().item()}')
+        # r_ij, x_ij = computeDistanceTensor(neighborhood, normalize = False, mode = 'gather')
+        # print(f'Number of neighbors: {particles.numNeighbors.min().item()} - {particles.numNeighbors.max().item()} - {particles.numNeighbors.median().item()}')
+        # print(f'r_ij: {r_ij.min().item()} - {r_ij.max().item()} - {r_ij.mean().item()}')
+        # print(f'supports: {particles.supports.min().item()} - {particles.supports.max().item()} - {particles.supports.mean().item()}')
     
 
     # $$\rho_i = \sum_j m_j W_{ij}(h_i)$$
