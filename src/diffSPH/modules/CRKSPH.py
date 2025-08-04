@@ -372,12 +372,12 @@ def computeCRKAccel(
     
     if torch.any(phi_ij < -0.01) or torch.any(phi_ij > 1.01):
         print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
-    print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
     # print(f'factor: min: {factor.min():8.3g}, max: {factor.max():8.3g}, mean {factor.mean():8.3g} has nan: {torch.isnan(factor).any()} has inf: {torch.isinf(factor).any()}')
-    phi_ij = phi_ij #* factor
+    phi_ij = phi_ij * factor
 
     phi_ij = phi_ij.clamp(0, 1)
-    phi_ij[:] = 0.50
+    print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
+    # phi_ij[:] = 0.50
 
     # "Mike Method", see Spheral, LimitedMonaghanGingoldViscosity
     v_i_hat = v_i - phi_ij.view(-1,1) / 2 * torch.einsum('nba, na -> nb', velocityTensor[i], x_ij)
