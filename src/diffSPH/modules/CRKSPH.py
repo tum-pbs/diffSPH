@@ -98,7 +98,7 @@ def computeGeometricMoments(
     )
 
 
-def computeCRKTerms(moments: KernelMoments, num_nbrs: torch.Tensor):
+def computeCRKTerms(moments: KernelMoments, num_nbrs: torch.Tensor, supports: torch.Tensor):
     m_0 = moments.m_0
     m_1 = moments.m_1
     m_2 = moments.m_2
@@ -111,8 +111,9 @@ def computeCRKTerms(moments: KernelMoments, num_nbrs: torch.Tensor):
     m_2_inv = torch.linalg.pinv(m_2)
     
     # print(f'm_2_det: {m_2_det.min():8.3g}, {m_2_det.max():8.3g}, {m_2_det.mean():8.3g} has nan: {torch.isnan(m_2_det).any()} has inf: {torch.isinf(m_2_det).any()}')
-    
+    # 
     is_singular = torch.where(m_2_det < 1e-10, 1.0, 0.0)
+    # print(f'Number of singular matrices: {is_singular.sum()}')
     #     # Eq. 12.
     # ai = 1.0/(m0 - dot(temp_vec, m1, d))
     A = 1 / (m_0 - torch.einsum('nij, ni, nj -> n', m_2_inv, m_1, m_1))
@@ -376,7 +377,7 @@ def computeCRKAccel(
     phi_ij = phi_ij * factor
 
     phi_ij = phi_ij.clamp(0, 1)
-    print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
+    # print(f'phi_ij: min: {phi_ij.min():8.3g}, max: {phi_ij.max():8.3g}, mean {phi_ij.mean():8.3g} has nan: {torch.isnan(phi_ij).any()} has inf: {torch.isinf(phi_ij).any()}')
     # phi_ij[:] = 0.50
 
     # "Mike Method", see Spheral, LimitedMonaghanGingoldViscosity
@@ -428,8 +429,8 @@ def computeCRKAccel(
 
 
 
-    print(f'mu_i: min: {mu_i.min():8.3g}, max: {mu_i.max():8.3g} has nan: {torch.isnan(mu_i).any()} has inf: {torch.isinf(mu_i).any()}, shape: {mu_i.shape}')
-    print(f'mu_j: min: {mu_j.min():8.3g}, max: {mu_j.max():8.3g} has nan: {torch.isnan(mu_j).any()} has inf: {torch.isinf(mu_j).any()}, shape: {mu_j.shape}')
+    # print(f'mu_i: min: {mu_i.min():8.3g}, max: {mu_i.max():8.3g} has nan: {torch.isnan(mu_i).any()} has inf: {torch.isinf(mu_i).any()}, shape: {mu_i.shape}')
+    # print(f'mu_j: min: {mu_j.min():8.3g}, max: {mu_j.max():8.3g} has nan: {torch.isnan(mu_j).any()} has inf: {torch.isinf(mu_j).any()}, shape: {mu_j.shape}')
 
     # mu_i = mu_j = -0.1
     correctXi = getSetConfig(config, 'diffusion', 'correctXi', True)

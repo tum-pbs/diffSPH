@@ -201,11 +201,11 @@ def getSetConfig(config, namespace, key, default):
         if key in config[namespace]:
             return config[namespace][key]
         else:
-            print(f'Key {key} not found in config["{namespace}"]. Setting {key} to {default}')
+            # print(f'Key {key} not found in config["{namespace}"]. Setting {key} to {default}')
             config[namespace][key] = default
             return default
     else:
-        print(f'Namespace {namespace} not found in config. Setting {key} to {default}')
+        # print(f'Namespace {namespace} not found in config. Setting {key} to {default}')
         config[namespace] = {}
         config[namespace][key] = default
         return default

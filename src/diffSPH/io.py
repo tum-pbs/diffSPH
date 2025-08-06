@@ -233,6 +233,48 @@ def writeParticleDataWCSPH(outGroup, particleSystem, step, dt):
 
     return frameGroup
 
+
+def writeParticleDataWCSPHMinimal(outGroup, particleSystem, step, dt):
+    frameGroup = outGroup.create_group(f'{step:06d}')
+
+    frameGroup.attrs['time'] = particleSystem.t.cpu().item() if isinstance(particleSystem.t, torch.Tensor) else particleSystem.t
+    frameGroup.attrs['dt'] = dt.cpu().item() if isinstance(dt, torch.Tensor) else dt
+    frameGroup.attrs['numParticles'] = particleSystem.systemState.positions.shape[0]
+    frameGroup.attrs['numRigidBodies'] = len(particleSystem.rigidBodies)
+    frameGroup.attrs['UIDcounter'] = particleSystem.systemState.UIDcounter.cpu().item() if isinstance(particleSystem.systemState.UIDcounter, torch.Tensor) else particleSystem.systemState.UIDcounter
+
+    for r, rigidBody in enumerate(particleSystem.rigidBodies):
+        rigidBodyGroup = frameGroup.create_group(f'rigidBody_{r:03d}')
+        rigidBodyGroup.attrs['bodyID'] = rigidBody.bodyID
+        rigidBodyGroup.attrs['kind'] = rigidBody.kind
+
+        rigidBodyGroup.attrs['centerOfMass'] = rigidBody.centerOfMass.cpu().numpy()
+        rigidBodyGroup.attrs['orientation'] = rigidBody.orientation.cpu().numpy()
+        rigidBodyGroup.attrs['angularVelocity'] = rigidBody.angularVelocity.cpu().numpy()
+        rigidBodyGroup.attrs['linearVelocity'] = rigidBody.linearVelocity.cpu().numpy()
+        rigidBodyGroup.attrs['mass'] = rigidBody.mass.cpu().numpy()
+        rigidBodyGroup.attrs['inertia'] = rigidBody.inertia.cpu().numpy()
+
+    frameGroup.create_dataset('positions', data = particleSystem.systemState.positions.cpu().numpy())
+    # frameGroup.create_dataset('supports', data = particleSystem.systemState.supports.cpu().numpy())
+    # frameGroup.create_dataset('masses', data = particleSystem.systemState.masses.cpu().numpy())
+    frameGroup.create_dataset('densities', data = particleSystem.systemState.densities.cpu().numpy())
+    frameGroup.create_dataset('velocities', data = particleSystem.systemState.velocities.cpu().numpy())
+    # frameGroup.create_dataset('pressures', data = particleSystem.systemState.pressures.cpu().numpy())
+    # frameGroup.create_dataset('soundspeeds', data = particleSystem.systemState.soundspeeds.cpu().numpy())
+    # frameGroup.create_dataset('kinds', data = particleSystem.systemState.kinds.cpu().numpy())
+    # frameGroup.create_dataset('materials', data = particleSystem.systemState.materials.cpu().numpy())
+    # frameGroup.create_dataset('UIDs', data = particleSystem.systemState.UIDs.cpu().numpy())
+    
+    # if particleSystem.systemState.numNeighbors is not None:
+    #     frameGroup.create_dataset('numNeighbors', data = particleSystem.systemState.numNeighbors.cpu().numpy())
+    # if particleSystem.systemState.ghostIndices is not None:
+    #     frameGroup.create_dataset('ghostIndices', data = particleSystem.systemState.ghostIndices.cpu().numpy())
+    #     frameGroup.create_dataset('ghostOffsets', data = particleSystem.systemState.ghostOffsets.cpu().numpy())
+
+    return frameGroup
+
+
 def writeParticleDataCompressible(outGroup, particleSystem, step, dt):
     frameGroup = outGroup.create_group(f'{step:06d}')
 
@@ -275,10 +317,60 @@ def writeParticleDataCompressible(outGroup, particleSystem, step, dt):
     return frameGroup
 
 
+def writeParticleDataCompressibleMinimal(outGroup, particleSystem, step, dt):
+    frameGroup = outGroup.create_group(f'{step:06d}')
+
+    frameGroup.attrs['time'] = particleSystem.t.cpu().item() if isinstance(particleSystem.t, torch.Tensor) else particleSystem.t
+    frameGroup.attrs['dt'] = dt.cpu().item() if isinstance(dt, torch.Tensor) else dt
+    frameGroup.attrs['numParticles'] = particleSystem.systemState.positions.shape[0]
+    frameGroup.attrs['numRigidBodies'] = len(particleSystem.rigidBodies) if hasattr(particleSystem, 'rigidBodies') else 0
+    frameGroup.attrs['UIDcounter'] = particleSystem.systemState.UIDcounter.cpu().item() if isinstance(particleSystem.systemState.UIDcounter, torch.Tensor) else particleSystem.systemState.UIDcounter
+
+    frameGroup.create_dataset('positions', data = particleSystem.systemState.positions.cpu().numpy())
+    frameGroup.create_dataset('supports', data = particleSystem.systemState.supports.cpu().numpy())
+    # frameGroup.create_dataset('masses', data = particleSystem.systemState.masses.cpu().numpy())
+    frameGroup.create_dataset('densities', data = particleSystem.systemState.densities.cpu().numpy())
+    frameGroup.create_dataset('velocities', data = particleSystem.systemState.velocities.cpu().numpy())
+
+
+    # frameGroup.create_dataset('kinds', data = particleSystem.systemState.kinds.cpu().numpy())
+    # frameGroup.create_dataset('materials', data = particleSystem.systemState.materials.cpu().numpy())
+    # frameGroup.create_dataset('UIDs', data = particleSystem.systemState.UIDs.cpu().numpy())
+    
+    # if particleSystem.systemState.numNeighbors is not None:
+    #     frameGroup.create_dataset('numNeighbors', data = particleSystem.systemState.numNeighbors.cpu().numpy())
+    # if particleSystem.systemState.ghostIndices is not None:
+    #     frameGroup.create_dataset('ghostIndices', data = particleSystem.systemState.ghostIndices.cpu().numpy())
+    #     frameGroup.create_dataset('ghostOffsets', data = particleSystem.systemState.ghostOffsets.cpu().numpy())
+
+    # if particleSystem.systemState.alphas is not None:
+    #     frameGroup.create_dataset('alphas', data = particleSystem.systemState.alphas.cpu().numpy())
+    # if particleSystem.systemState.alpha0s is not None:
+    #     frameGroup.create_dataset('alpha0s', data = particleSystem.systemState.alpha0s.cpu().numpy())
+    # if particleSystem.systemState.divergence is not None:
+    #     frameGroup.create_dataset('divergence', data = particleSystem.systemState.divergence.cpu().numpy())
+
+    frameGroup.create_dataset('internalEnergies', data = particleSystem.systemState.internalEnergies.cpu().numpy())
+    # frameGroup.create_dataset('totalEnergies', data = particleSystem.systemState.totalEnergies.cpu().numpy())
+    # frameGroup.create_dataset('entropies', data = particleSystem.systemState.entropies.cpu().numpy())
+    # frameGroup.create_dataset('pressures', data = particleSystem.systemState.pressures.cpu().numpy())
+    # frameGroup.create_dataset('soundspeeds', data = particleSystem.systemState.soundspeeds.cpu().numpy())
+
+    return frameGroup
+
+
 def writeParticleData(outFile, particleSystem, step, dt):
     if isinstance(particleSystem.systemState, WeaklyCompressibleState):
         return writeParticleDataWCSPH(outFile, particleSystem, step, dt)
     elif isinstance(particleSystem.systemState, CompressibleState):
         return writeParticleDataCompressible(outFile, particleSystem, step, dt)
+    else:
+        raise ValueError(f'Unknown state type: {type(particleSystem.systemState)}')
+    
+def writeParticleDataMinimal(outFile, particleSystem, step, dt):
+    if isinstance(particleSystem.systemState, WeaklyCompressibleState):
+        return writeParticleDataWCSPHMinimal(outFile, particleSystem, step, dt)
+    elif isinstance(particleSystem.systemState, CompressibleState):
+        return writeParticleDataCompressibleMinimal(outFile, particleSystem, step, dt)
     else:
         raise ValueError(f'Unknown state type: {type(particleSystem.systemState)}')

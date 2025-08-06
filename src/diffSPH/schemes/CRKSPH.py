@@ -74,7 +74,7 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
 
     verbosePrint(verbose, '[CompSPH]\tNeighborsearch')
     with record_function("[CompSPH] - 02 - Neighborsearch"):
-        neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], wrappedKernel, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=None)
+        neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], wrappedKernel, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood)
         particles.numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'noghost')).rowEntries
 
         # r_ij, x_ij = computeDistanceTensor(neighborhood, normalize = False, mode = 'gather')
@@ -98,7 +98,7 @@ def CRKScheme(SPHSystem, dt, config, verbose = False):
         kernelMoments = computeGeometricMoments(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.SuperSymmetric, config)
     
     with record_function("[PESPH] - 05 - Compute Kernal Renormalization Terms"):
-        particles.A, particles.B, particles.gradA, particles.gradB = computeCRKTerms(kernelMoments, particles.numNeighbors)
+        particles.A, particles.B, particles.gradA, particles.gradB = computeCRKTerms(kernelMoments, particles.numNeighbors, particles.supports)
 
     with record_function("[PESPH] - 06 - Compute Density"):
         # if not hadDensity:

@@ -302,7 +302,7 @@ def evaluateOptimalSupportOwen(
             print('----------------------------------')
             print(f'Iteration {i}, target: {nhTarget}')
 
-        neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], kernel_, verletScale = 1.0, mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood)
+        neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], kernel_, verletScale = 1.4, mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood)
         
         psi_0, psi_0_H = computePsi_0(particles, kernel_, neighbors.get('noghost'), supportScheme, config)
         if verbose:
