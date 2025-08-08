@@ -194,6 +194,10 @@ m0 = torch.sum(masses) / particles.positions.shape[0]
 
 import numpy as np
 
+np.random.seed(args.seed)  # For reproducibility
+
+
+
 
 numberOfRegions = int(setIndex.max().item() + 1)
 Pinitials = np.random.uniform(args.minP, args.maxP, size = (numberOfRegions,))
@@ -269,7 +273,7 @@ if args.velocityNoise:
         print(f'Added noise to initial velocities with shape: {velocityField.shape} and range: {velocityField.min().item()} - {velocityField.max().item()}')
 
 if args.densityNoise:
-    noiseGen = generateNoiseInterpolator(nx, nx, domain, dim = domain.dim, octaves = octaves, lacunarity = lacunarity, persistence = persistence, baseFrequency = baseFrequency, tileable = tileable, kind = kind, seed = seed)
+    noiseGen = generateNoiseInterpolator(nx, nx, domain, dim = domain.dim, octaves = octaves, lacunarity = lacunarity, persistence = persistence, baseFrequency = baseFrequency, tileable = tileable, kind = kind, seed = args.densityNoiseSeed)
     noiseField = noiseGen(simulationState.positions).to(dtype)
     simulationState.densities = args.minRho + (args.maxRho - args.minRho) * (noiseField + 1) / 2
 
@@ -280,7 +284,7 @@ if args.densityNoise:
     if verbose:
         print(f'Added noise to initial densities with shape: {simulationState.densities.shape} and range: {simulationState.densities.min().item()} - {simulationState.densities.max().item()}')
 if args.pressureNoise:
-    noiseGen = generateNoiseInterpolator(nx, nx, domain, dim = domain.dim, octaves = octaves, lacunarity = lacunarity, persistence = persistence, baseFrequency = baseFrequency, tileable = tileable, kind = kind, seed = seed)
+    noiseGen = generateNoiseInterpolator(nx, nx, domain, dim = domain.dim, octaves = octaves, lacunarity = lacunarity, persistence = persistence, baseFrequency = baseFrequency, tileable = tileable, kind = kind, seed = args.pressureNoiseSeed)
     noiseField = noiseGen(simulationState.positions).to(dtype)
     Pinitial = args.minP + (args.maxP - args.minP) * (noiseField + 1) / 2
 
@@ -350,8 +354,8 @@ timesteps = int(timeLimit / newDt)
 currentTime = datetime.datetime.now()
 timestamp = currentTime.strftime("%Y-%m-%d_%H-%M-%S")
 
-imagePrefix = f'./images/{caseName}_{nx**2}_{timestamp}/'
-exportName = f'./data/{caseName}_{nx**2}_{timestamp}.h5'
+imagePrefix = f'./images/{caseName}_{nx**2}_{args.seed}_{timestamp}_{args.gpu}/'
+exportName = f'./data/{caseName}_{nx**2}_{args.seed}_{timestamp}_{args.gpu}.h5'
 os.makedirs(os.path.dirname(exportName), exist_ok = True)
 os.makedirs(imagePrefix, exist_ok = True)
 
@@ -376,7 +380,7 @@ def plotScalar(fig, axis, label, fluidParticles, quantity, domain, solverConfig,
 
 fig, axis = plt.subplots(2, 3, figsize=(15, 8.5), squeeze=False, sharex=True, sharey=True)
 
-s = 1
+s = 0.25
 fluidParticles = actualState.systemState
 
 
@@ -405,55 +409,58 @@ fig.savefig(f'{imagePrefix}frame_{0:05d}.png', dpi = 200)
 if verbose:
     print(f'Done preparing simulation')
 
-outFile = initializeOutputFile(exportName, actualState, solverConfig,simulationName='testData')
-outGroup = outFile['simulationData']
-writeParticleData(outGroup, actualState, step = 0, dt = newDt)
+# outFile = initializeOutputFile(exportName, actualState, solverConfig,simulationName='testData')
+# outGroup = outFile['simulationData']
+# writeParticleData(outGroup, actualState, step = 0, dt = newDt)
 
-outFile['caseSpecificData'].attrs['caseName'] = caseName
-outFile['caseSpecificData'].attrs['nx'] = nx
-outFile['caseSpecificData'].attrs['gamma'] = gamma
-outFile['caseSpecificData'].attrs['rho0'] = rho0
+# outFile['caseSpecificData'].attrs['caseName'] = caseName
+# outFile['caseSpecificData'].attrs['nx'] = nx
+# outFile['caseSpecificData'].attrs['gamma'] = gamma
+# outFile['caseSpecificData'].attrs['rho0'] = rho0
 
-outFile['caseSpecificData'].attrs['splitLineX'] = splitLineX
-outFile['caseSpecificData'].attrs['splitLineY'] = splitLineY
-outFile['caseSpecificData'].attrs['regions'] = args.regions
-outFile['caseSpecificData'].attrs['sdf'] = args.sdf
+# outFile['caseSpecificData'].attrs['splitLineX'] = splitLineX
+# outFile['caseSpecificData'].attrs['splitLineY'] = splitLineY
+# outFile['caseSpecificData'].attrs['regions'] = args.regions
+# if args.sdf is None:
+#     outFile['caseSpecificData'].attrs['sdf'] = 'None'
+# else:
+#     outFile['caseSpecificData'].attrs['sdf'] = args.sdf
 
-outFile['caseSpecificData'].attrs['densityNoise'] = args.densityNoise
-outFile['caseSpecificData'].attrs['pressureNoise'] = args.pressureNoise
-outFile['caseSpecificData'].attrs['densityNoiseSeed'] = args.densityNoiseSeed
-outFile['caseSpecificData'].attrs['pressureNoiseSeed'] = args.pressureNoiseSeed
+# outFile['caseSpecificData'].attrs['densityNoise'] = args.densityNoise
+# outFile['caseSpecificData'].attrs['pressureNoise'] = args.pressureNoise
+# outFile['caseSpecificData'].attrs['densityNoiseSeed'] = args.densityNoiseSeed
+# outFile['caseSpecificData'].attrs['pressureNoiseSeed'] = args.pressureNoiseSeed
 
-outFile['caseSpecificData'].attrs['velocityNoise'] = args.velocityNoise
-outFile['caseSpecificData'].attrs['octaves'] = octaves
-outFile['caseSpecificData'].attrs['lacunarity'] = lacunarity
-outFile['caseSpecificData'].attrs['persistence'] = persistence
-outFile['caseSpecificData'].attrs['baseFrequency'] = baseFrequency
-outFile['caseSpecificData'].attrs['tileable'] = tileable
-outFile['caseSpecificData'].attrs['kind'] = kind
-outFile['caseSpecificData'].attrs['seed'] = seed
+# outFile['caseSpecificData'].attrs['velocityNoise'] = args.velocityNoise
+# outFile['caseSpecificData'].attrs['octaves'] = octaves
+# outFile['caseSpecificData'].attrs['lacunarity'] = lacunarity
+# outFile['caseSpecificData'].attrs['persistence'] = persistence
+# outFile['caseSpecificData'].attrs['baseFrequency'] = baseFrequency
+# outFile['caseSpecificData'].attrs['tileable'] = tileable
+# outFile['caseSpecificData'].attrs['kind'] = kind
+# outFile['caseSpecificData'].attrs['seed'] = seed
 
-outFile['caseSpecificData'].attrs['rho0'] = args.rho0
-outFile['caseSpecificData'].attrs['Pinitial'] = args.Pinitial
-outFile['caseSpecificData'].attrs['dt'] = dt
-outFile['caseSpecificData'].attrs['minRho'] = args.minRho
-outFile['caseSpecificData'].attrs['maxRho'] = args.maxRho
-outFile['caseSpecificData'].attrs['minP'] = args.minP
-outFile['caseSpecificData'].attrs['maxP'] = args.maxP
+# outFile['caseSpecificData'].attrs['rho0'] = args.rho0
+# outFile['caseSpecificData'].attrs['Pinitial'] = args.Pinitial
+# outFile['caseSpecificData'].attrs['dt'] = dt
+# outFile['caseSpecificData'].attrs['minRho'] = args.minRho
+# outFile['caseSpecificData'].attrs['maxRho'] = args.maxRho
+# outFile['caseSpecificData'].attrs['minP'] = args.minP
+# outFile['caseSpecificData'].attrs['maxP'] = args.maxP
 
-outFile['caseSpecificData'].attrs['verbose'] = args.verbose
-outFile['caseSpecificData'].attrs['adaptiveHScheme'] = args.adaptiveHScheme
-outFile['caseSpecificData'].attrs['simulationScheme'] = args.simulationScheme
-outFile['caseSpecificData'].attrs['integrationScheme'] = args.integrationScheme
-outFile['caseSpecificData'].attrs['kernelType'] = args.kernelType
+# outFile['caseSpecificData'].attrs['verbose'] = args.verbose
+# outFile['caseSpecificData'].attrs['adaptiveHScheme'] = args.adaptiveHScheme
+# outFile['caseSpecificData'].attrs['simulationScheme'] = args.simulationScheme
+# outFile['caseSpecificData'].attrs['integrationScheme'] = args.integrationScheme
+# outFile['caseSpecificData'].attrs['kernelType'] = args.kernelType
 
-outFile['caseSpecificData'].attrs['CFL'] = CFL
-outFile['caseSpecificData'].attrs['targetNeighbors'] = targetNeighbors
-outFile['caseSpecificData'].attrs['exportInterval'] = exportInterval
-outFile['caseSpecificData'].attrs['exportSteps'] = exportSteps
-outFile['caseSpecificData'].attrs['newDt'] = newDt
-outFile['caseSpecificData'].attrs['plotInterval'] = plotInterval
-outFile['caseSpecificData'].attrs['timestamp'] = timestamp
+# outFile['caseSpecificData'].attrs['CFL'] = CFL
+# outFile['caseSpecificData'].attrs['targetNeighbors'] = targetNeighbors
+# outFile['caseSpecificData'].attrs['exportInterval'] = exportInterval
+# outFile['caseSpecificData'].attrs['exportSteps'] = exportSteps
+# outFile['caseSpecificData'].attrs['newDt'] = newDt
+# outFile['caseSpecificData'].attrs['plotInterval'] = plotInterval
+# outFile['caseSpecificData'].attrs['timestamp'] = timestamp
 
 
 gtqdms = []
@@ -473,6 +480,7 @@ for i in (range(timesteps)):
 # while(True):
     actualState, currentState, updates = integrator.function(actualState, dt, simulator, solverConfig, priorStep = actualState.priorStep)
     actualState.priorStep = [updates[-1], currentState[-1]]
+    actualState.priorStep = None
     # if i%100 == 0:
         # states.append(copy.deepcopy(simulationState).to(dtype = torch.float32, device = 'cpu'))
 
@@ -514,7 +522,7 @@ for i in (range(timesteps)):
         })
         tq.update()
 
-    frameGroup = writeParticleDataMinimal(outGroup, actualState, step = i+1, dt = dt)
+    # frameGroup = writeParticleDataMinimal(outGroup, actualState, step = i+1, dt = dt)
 
     # frameGroup.attrs['timestepCFL'] = timestepCFL
     # frameGroup.attrs['CFLNumber'] = CFLNumber.item() if torch.is_tensor(CFLNumber) else CFLNumber
@@ -556,7 +564,7 @@ for i in (range(timesteps)):
         fig.canvas.draw()
         fig.canvas.flush_events()
         fig.savefig(f'{imagePrefix}frame_{i:05d}.png', dpi = 200)
-outFile.close()
+# outFile.close()
 
 import os
 import subprocess
@@ -574,20 +582,22 @@ def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):
     commandC = f'/usr/bin/ffmpeg -loglevel warning -hide_banner -y -i {imagePrefix}/output.mp4 -i {imagePrefix}/palette.png -filter_complex "fps={fps},scale={scale}:-1:flags=lanczos[x];[x][1:v]paletteuse" {imagePrefix}/output.gif'
 
     # print('Creating video from  frames (frame count: {})'.format(len(os.listdir(imagePrefix))))
-    print(f'Creating video from frames (frame count: {timesteps})')
+    # print(f'Creating video from frames (frame count: {timesteps})')
     subprocess.run(shlex.split(command))
-    print('Creating palette from video')
+    # print('Creating palette from video')
     subprocess.run(shlex.split(commandB))
-    print('Creating gif from video')
+    # print('Creating gif from video')
     subprocess.run(shlex.split(commandC))
 
-    print('Copying video to videos folder')
+    # print('Copying video to videos folder')
     os.makedirs(f'./videos/', exist_ok= True)
-    # subprocess.run(shlex.split(f'cp {imagePrefix}/output.mp4 ./videos/{exportName}.mp4'))
-    # subprocess.run(shlex.split(f'cp {imagePrefix}/output.gif ./videos/{exportName}.gif'))
-    # lastFrameFile = f'{imagePrefix}/frame_{timesteps - 1:05d}.png'
-    # subprocess.run(shlex.split(f'cp {lastFrameFile} ./videos/{exportName}.png'))
-    print('Done!')
+    os.makedirs(f'./lastFrames/', exist_ok= True)
+
+    subprocess.run(shlex.split(f'cp {imagePrefix}/output.mp4 ./videos/{exportName}.mp4'))
+    subprocess.run(shlex.split(f'cp {imagePrefix}/output.gif ./videos/{exportName}.gif'))
+    lastFrameFile = f'{imagePrefix}/frame_{timesteps - 1:05d}.png'
+    subprocess.run(shlex.split(f'cp {lastFrameFile} ./lastFrames/{exportName}.png'))
+    # print('Done!')
 
 
 # def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):
@@ -630,7 +640,7 @@ def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):
 postProcess(
     imagePrefix = imagePrefix,
     fps = 50,
-    exportName = '2DShock2',
+    exportName = f'{caseName}_{nx**2}_{timestamp}_{args.gpu}',
     targetLongEdge = 1200
 )
 # def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):

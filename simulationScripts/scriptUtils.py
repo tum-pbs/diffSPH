@@ -83,7 +83,7 @@ from diffSPH.util import ParticleSet
 import numpy as np
 
 def sampleRegions(domain, nx, targetNeighbors, splitX, splitY, jitter = 0.0):
-    print(f'Sampling regions with nx = {nx}, splitX = {splitX}, splitY = {splitY}, jitter = {jitter}')
+    # print(f'Sampling regions with nx = {nx}, splitX = {splitX}, splitY = {splitY}, jitter = {jitter}')
     if isinstance(nx, int):
         particles = sampleRegularParticles(nx, domain, targetNeighbors, jitter = jitter)
 
@@ -303,7 +303,7 @@ def maskParticles_2(particles, numberOfRegions, domain, nx, sdf = None, sdfParam
             raise ValueError(f'Unsupported number of regions: {numberOfRegions}')
     if sdf is not None:
         sdf_ = buildSDF(particles.positions, sdf, sdfParameters).flatten()
-        print(sdf_)
+        # print(sdf_)
         mask[sdf_ <= 0] = numberOfRegions
         return mask, sdf_
 
