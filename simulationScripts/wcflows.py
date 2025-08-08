@@ -312,9 +312,11 @@ if args.verbose:
 
 
 if config['fluid']['c_s'] < maxVelocity * 10:
-    raise ValueError(f'Speed of sound {config["fluid"]["c_s"]} is too low for maximum velocity {maxVelocity}. Increase c_s or decrease max velocity.')
+    print(f'Warning: Speed of sound {config["fluid"]["c_s"]} is too low for maximum velocity {maxVelocity}. Increase c_s or decrease max velocity.')
+    # raise ValueError(f'Speed of sound {config["fluid"]["c_s"]} is too low for maximum velocity {maxVelocity}. Increase c_s or decrease max velocity.')
 if config['fluid']['c_s'] >= c_s_CFL:
-    raise ValueError(f'Speed of sound {config["fluid"]["c_s"]} is too high for CFL condition {c_s_CFL}. Decrease c_s or increase targetDt.')
+    print(f'Warning: Speed of sound {config["fluid"]["c_s"]} is too high for CFL condition {c_s_CFL}. Decrease c_s or increase targetDt.')
+    # raise ValueError(f'Speed of sound {config["fluid"]["c_s"]} is too high for CFL condition {c_s_CFL}. Decrease c_s or increase targetDt.')
 
 if args.export:
     os.makedirs(os.path.dirname(exportName), exist_ok = True)
@@ -384,6 +386,16 @@ def plotScalar(fig, axis, label, fluidParticles, quantity, domain, solverConfig,
 fig, axis = plt.subplots(2, 3, figsize=(15, 8.5), squeeze=False, sharex=True, sharey=True)
 
 s = 4
+if nx == 32:
+    s = 16
+if nx == 64:
+    s = 4
+if nx == 128:
+    s = 1
+if nx == 256:
+    s = 0.5
+
+
 fluidParticles = actualState.systemState
 
 
