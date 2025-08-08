@@ -148,5 +148,5 @@ def shuffleParticles(particleState, config, shiftIters = 256):
     for i in range(shiftIters):
         dx, *_ = solveShifting(particleSystem, 0.1, configS)
         particleSystem.systemState.positions[kindMask,:] += dx[kindMask,:]
-        print(f'[{i:03d}] dx = {torch.linalg.norm(dx[kindMask,:], dim = 1).mean().item():.4f}')
+        # print(f'[{i:03d}] dx = {torch.linalg.norm(dx[kindMask,:], dim = 1).mean().item():.4f}')
     return particleSystem.systemState.positions
