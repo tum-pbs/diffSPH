@@ -13,7 +13,7 @@ The only major requirement for this solver is our companion software that handle
 conda create -n diffSPHEnv python=3.12
 conda activate diffSPHEnv
 conda install nvidia/label/cuda-12.8.1::cuda-toolkit
-pip install toml scipy numba tqdm h5py matplotlib ipywidgets ipympl imageio scikit-image ipykernel imageio_ffmpeg
+pip install toml scipy numba tqdm h5py matplotlib ipywidgets ipympl imageio scikit-image ipykernel imageio_ffmpeg portalocker
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 pip install torchCompactRadius
 pip install diffSPH
