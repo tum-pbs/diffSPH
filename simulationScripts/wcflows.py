@@ -106,6 +106,7 @@ exportName = f'./data/{fileName}.h5'
 L = 2
 dx = L / nx
 targetDt = args.dt
+dt = args.dt
 rho0 = args.rho0
 freeSurface = False
 band = 4 if domainBoundary else 0
@@ -324,7 +325,7 @@ os.makedirs(imagePrefix, exist_ok = True)
 
 from diffSPH.neighborhood import evaluateNeighborhood, filterNeighborhoodByKind, coo_to_csr
 
-dt = computeTimestep(scheme, 1e-2, particleState, config, None)
+# dt = computeTimestep(scheme, 1e-2, particleState, config, None)
 particles = copy.deepcopy(particleState)
 particleSystem = DeltaPlusSPHSystem(config['domain'], None, 0., copy.deepcopy(particleState), 'momentum', None, rigidBodies = config['rigidBodies'], regions = config['regions'], config = config)
 
@@ -419,10 +420,10 @@ fig.suptitle(f'{args.caseName}, ptcls = {particleState.positions.shape[0]}, kern
 
 fig.tight_layout()
 
-# fig.savefig(f'{imagePrefix}frame_{0:05d}.png', dpi = 200)
-fig.savefig(f'{fileName}.png', dpi = 200)
+fig.savefig(f'{imagePrefix}frame_{0:05d}.png', dpi = 200)
+# fig.savefig(f'{fileName}.png', dpi = 200)
 
-exit()
+# exit()
 
 
 from diffSPH.io import initializeOutputFile, writeParticleData, writeParticleDataMinimal
@@ -507,6 +508,10 @@ for i in (range(timesteps)):
         'Kinetic Energy': kineticEnergy.item(),
         'Total Energy': totalEnergy.item(),
         'Time': actualState.t.item() if torch.is_tensor(actualState.t) else actualState.t,
+        'nx': args.nx,
+        'boundary': args.domainBoundary,
+        'obstacle': args.obstacle,
+        'viscosity': config['diffusion']['boundary'],
     })
     tq.update(1)
     t = actualState.t.item() if torch.is_tensor(actualState.t) else actualState.t
@@ -608,7 +613,7 @@ def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):
 postProcess(
     imagePrefix = imagePrefix,
     fps = 50,
-    exportName = caseName + '_' + str(nx) + '_' + str(octaves) + '_' + str(lacunarity) + '_' + str(persistence) + '_' + str(baseFrequency) + '_' + str(tileable) + '_' + kind + '_' + str(seed) + '_obstacle_' + str(obstacle) + '_domainBoundary_' + str(domainBoundary),
+    exportName = fileName,
     targetLongEdge = 1200
 )
 # def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):
