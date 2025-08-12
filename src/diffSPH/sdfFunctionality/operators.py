@@ -8,7 +8,7 @@ def rotate_sdf(sdf, angle):
 def scale_sdf(sdf, scale):
     return lambda p: sdf(p / scale) *scale
 def op_union(a, b):
-    return lambda p: torch.min(a(p), b(p))
+    return lambda p: torch.minimum(a(p), b(p))
 def op_intersection(a, b):
     return lambda p: torch.max(a(p), b(p))
 def op_difference(a, b):

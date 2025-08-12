@@ -399,9 +399,10 @@ def rampDivergenceFree(positions, noise, sdf_func, offset, d0 = 0.25):
 def generateRamp(perennialState, config):
     regions = config['regions']
     boundary_sdfs = [region['sdf'] for region in regions if region['type'] == 'boundary']
+    # print(boundary_sdfs)
     combined_sdf = lambda x: boundary_sdfs[0](x)[0]
     for sdf in boundary_sdfs[1:]:
-        combined_sdf = operatorDict['union'](combined_sdf, lambda x: sdf(x)[0])
+        combined_sdf = operatorDict['union'](combined_sdf, lambda x, sdf = sdf: sdf(x)[0])
 
 
     buffer = config.get('boundary', {}).get('potentialBuffer', 4)
