@@ -94,6 +94,11 @@ parser.add_argument('--kernelType', type=str, default='B7', choices=['B7', 'Cubi
 parser.add_argument('--gpu', type=int, default=0, help='GPU index to use for the simulation.')
 parser.add_argument('--gpus', type=int, default=1, help='Number of GPUs.')
 
+parser.add_argument('--plot', dest='plot', action='store_true', default=True, help='Whether to plot the regions in the simulation.')
+parser.add_argument('--no-plot', dest='plot', action='store_false', help='Disable plotting of the regions in the simulation.')
+parser.add_argument('--export', action='store_true', help='Whether to export the simulation data to a file.')
+parser.add_argument('--exportDir', type=str, default='./out/', help='Directory to export the simulation data to.')
+
 args = parser.parse_args()
 verbose = args.verbose
 
@@ -354,10 +359,11 @@ timesteps = int(timeLimit / newDt)
 currentTime = datetime.datetime.now()
 timestamp = currentTime.strftime("%Y-%m-%d_%H-%M-%S")
 
-imagePrefix = f'./images/{caseName}_{nx**2}_{args.seed}_{timestamp}_{args.gpu}/'
-exportName = f'./data/{caseName}_{nx**2}_{args.seed}_{timestamp}_{args.gpu}.h5'
-os.makedirs(os.path.dirname(exportName), exist_ok = True)
-os.makedirs(imagePrefix, exist_ok = True)
+imagePrefix = f'{args.exportDir}/images/{caseName}_{nx**2}_{args.seed}_{timestamp}_{args.gpu}/'
+exportName = f'{args.exportDir}/data/{caseName}_{nx**2}_{args.seed}_{timestamp}_{args.gpu}.h5'
+if args.export:
+    os.makedirs(os.path.dirname(exportName), exist_ok = True)
+    os.makedirs(imagePrefix, exist_ok = True)
 
 
 def plotScalar(fig, axis, label, fluidParticles, quantity, domain, solverConfig, s, gridVisualization=True, gridResolution=256, mapping = None, cmap = 'viridis'):
@@ -378,89 +384,92 @@ def plotScalar(fig, axis, label, fluidParticles, quantity, domain, solverConfig,
                      gridVisualization=gridVisualization, gridResolution=gridResolution)
 
 
-fig, axis = plt.subplots(2, 3, figsize=(15, 8.5), squeeze=False, sharex=True, sharey=True)
+if args.plot:
+    fig, axis = plt.subplots(2, 3, figsize=(15, 8.5), squeeze=False, sharex=True, sharey=True)
 
-s = 0.25
-fluidParticles = actualState.systemState
-
-
-densityPlotState        = plotScalar(fig, axis[0,0], 'Density $\\rho$',     fluidParticles, densities,           domain, solverConfig, s, gridVisualization=False, gridResolution=256, cmap = 'viridis', mapping = None)
-internalEnergyPlotState = plotScalar(fig, axis[0,1], 'Internal Energy $u$', fluidParticles, fluidParticles.internalEnergies,    domain, solverConfig, s, gridVisualization=False, gridResolution=256, cmap = 'magma', mapping = None)
-supportPlotState        = plotScalar(fig, axis[0,2], 'Support $h$',         fluidParticles, fluidParticles.supports,            domain, solverConfig, s, gridVisualization=True, gridResolution=256, cmap = 'magma', mapping = None)
-numNeighborsPlotState   = plotScalar(fig, axis[1,2], 'Number of Neighbors', fluidParticles, numNeighbors,                       domain, solverConfig, s, gridVisualization=True, gridResolution=256, mapping = '.y', cmap = 'viridis')
-velocityXPlotState      = plotScalar(fig, axis[1,0], 'Velocity X',          fluidParticles, fluidParticles.velocities,          domain, solverConfig, s, gridVisualization=True, gridResolution=256, mapping = '.x', cmap = 'RdBu_r')
-velocityYPlotState      = plotScalar(fig, axis[1,1], 'Velocity Y',          fluidParticles, fluidParticles.velocities,          domain, solverConfig, s, gridVisualization=True, gridResolution=256, mapping = '.y', cmap = 'RdBu_r')
-
-# for ax in axis.flatten():
-    # ax.set_xlim(-1, 1)
-    # ax.set_ylim(-1,1)
-kineticEnergy = 0.5 * (torch.linalg.norm(actualState.systemState.velocities, dim = -1) **2 * actualState.systemState.masses).sum()
-thermalEnergy = (actualState.systemState.internalEnergies * actualState.systemState.masses).sum()
-totalEnergy = kineticEnergy + thermalEnergy
+    s = 0.25
+    fluidParticles = actualState.systemState
 
 
+    densityPlotState        = plotScalar(fig, axis[0,0], 'Density $\\rho$',     fluidParticles, densities,           domain, solverConfig, s, gridVisualization=False, gridResolution=256, cmap = 'viridis', mapping = None)
+    internalEnergyPlotState = plotScalar(fig, axis[0,1], 'Internal Energy $u$', fluidParticles, fluidParticles.internalEnergies,    domain, solverConfig, s, gridVisualization=False, gridResolution=256, cmap = 'magma', mapping = None)
+    supportPlotState        = plotScalar(fig, axis[0,2], 'Support $h$',         fluidParticles, fluidParticles.supports,            domain, solverConfig, s, gridVisualization=True, gridResolution=256, cmap = 'magma', mapping = None)
+    numNeighborsPlotState   = plotScalar(fig, axis[1,2], 'Number of Neighbors', fluidParticles, numNeighbors,                       domain, solverConfig, s, gridVisualization=True, gridResolution=256, mapping = '.y', cmap = 'viridis')
+    velocityXPlotState      = plotScalar(fig, axis[1,0], 'Velocity X',          fluidParticles, fluidParticles.velocities,          domain, solverConfig, s, gridVisualization=True, gridResolution=256, mapping = '.x', cmap = 'RdBu_r')
+    velocityYPlotState      = plotScalar(fig, axis[1,1], 'Velocity Y',          fluidParticles, fluidParticles.velocities,          domain, solverConfig, s, gridVisualization=True, gridResolution=256, mapping = '.y', cmap = 'RdBu_r')
 
-fig.suptitle(f'{solverConfig["schemeName"]}\n{caseName}, t = {actualState.t:2f} [step: {0:4d}], dt = {dt:.3g}, ptcls = {len(actualState.systemState.positions)}\nTotal Energy: {totalEnergy:.3g}, Kinetic Energy: {kineticEnergy:.3g}, Thermal Energy: {thermalEnergy:.3g}')
-# fig.suptitle(f'{solverConfig["schemeName"]}\nSedov-Taylor Explosion, t = {simulationState.t:2f} [step: {0:4d}], dt = {dt:.3g}, ptcls = {len(simulationState.systemState.positions)}\nTotal Energy: {totalEnergy:.3g}, Kinetic Energy: {kineticEnergy:.3g}, Thermal Energy: {thermalEnergy:.3g}')
+    # for ax in axis.flatten():
+        # ax.set_xlim(-1, 1)
+        # ax.set_ylim(-1,1)
+    kineticEnergy = 0.5 * (torch.linalg.norm(actualState.systemState.velocities, dim = -1) **2 * actualState.systemState.masses).sum()
+    thermalEnergy = (actualState.systemState.internalEnergies * actualState.systemState.masses).sum()
+    totalEnergy = kineticEnergy + thermalEnergy
 
-fig.tight_layout()
 
-fig.savefig(f'{imagePrefix}frame_{0:05d}.png', dpi = 200)
+
+    fig.suptitle(f'{solverConfig["schemeName"]}\n{caseName}, t = {actualState.t:2f} [step: {0:4d}], dt = {dt:.3g}, ptcls = {len(actualState.systemState.positions)}\nTotal Energy: {totalEnergy:.3g}, Kinetic Energy: {kineticEnergy:.3g}, Thermal Energy: {thermalEnergy:.3g}')
+    # fig.suptitle(f'{solverConfig["schemeName"]}\nSedov-Taylor Explosion, t = {simulationState.t:2f} [step: {0:4d}], dt = {dt:.3g}, ptcls = {len(simulationState.systemState.positions)}\nTotal Energy: {totalEnergy:.3g}, Kinetic Energy: {kineticEnergy:.3g}, Thermal Energy: {thermalEnergy:.3g}')
+
+    fig.tight_layout()
+
+    fig.savefig(f'{imagePrefix}frame_{0:05d}.png', dpi = 200)
+    
 if verbose:
     print(f'Done preparing simulation')
 
-# outFile = initializeOutputFile(exportName, actualState, solverConfig,simulationName='testData')
-# outGroup = outFile['simulationData']
-# writeParticleData(outGroup, actualState, step = 0, dt = newDt)
+if args.export:
+    outFile = initializeOutputFile(exportName, actualState, solverConfig,simulationName='testData')
+    outGroup = outFile['simulationData']
+    writeParticleData(outGroup, actualState, step = 0, dt = newDt)
 
-# outFile['caseSpecificData'].attrs['caseName'] = caseName
-# outFile['caseSpecificData'].attrs['nx'] = nx
-# outFile['caseSpecificData'].attrs['gamma'] = gamma
-# outFile['caseSpecificData'].attrs['rho0'] = rho0
+    outFile['caseSpecificData'].attrs['caseName'] = caseName
+    outFile['caseSpecificData'].attrs['nx'] = nx
+    outFile['caseSpecificData'].attrs['gamma'] = gamma
+    outFile['caseSpecificData'].attrs['rho0'] = rho0
 
-# outFile['caseSpecificData'].attrs['splitLineX'] = splitLineX
-# outFile['caseSpecificData'].attrs['splitLineY'] = splitLineY
-# outFile['caseSpecificData'].attrs['regions'] = args.regions
-# if args.sdf is None:
-#     outFile['caseSpecificData'].attrs['sdf'] = 'None'
-# else:
-#     outFile['caseSpecificData'].attrs['sdf'] = args.sdf
+    outFile['caseSpecificData'].attrs['splitLineX'] = splitLineX
+    outFile['caseSpecificData'].attrs['splitLineY'] = splitLineY
+    outFile['caseSpecificData'].attrs['regions'] = args.regions
+    if args.sdf is None:
+        outFile['caseSpecificData'].attrs['sdf'] = 'None'
+    else:
+        outFile['caseSpecificData'].attrs['sdf'] = args.sdf
 
-# outFile['caseSpecificData'].attrs['densityNoise'] = args.densityNoise
-# outFile['caseSpecificData'].attrs['pressureNoise'] = args.pressureNoise
-# outFile['caseSpecificData'].attrs['densityNoiseSeed'] = args.densityNoiseSeed
-# outFile['caseSpecificData'].attrs['pressureNoiseSeed'] = args.pressureNoiseSeed
+    outFile['caseSpecificData'].attrs['densityNoise'] = args.densityNoise
+    outFile['caseSpecificData'].attrs['pressureNoise'] = args.pressureNoise
+    outFile['caseSpecificData'].attrs['densityNoiseSeed'] = args.densityNoiseSeed
+    outFile['caseSpecificData'].attrs['pressureNoiseSeed'] = args.pressureNoiseSeed
 
-# outFile['caseSpecificData'].attrs['velocityNoise'] = args.velocityNoise
-# outFile['caseSpecificData'].attrs['octaves'] = octaves
-# outFile['caseSpecificData'].attrs['lacunarity'] = lacunarity
-# outFile['caseSpecificData'].attrs['persistence'] = persistence
-# outFile['caseSpecificData'].attrs['baseFrequency'] = baseFrequency
-# outFile['caseSpecificData'].attrs['tileable'] = tileable
-# outFile['caseSpecificData'].attrs['kind'] = kind
-# outFile['caseSpecificData'].attrs['seed'] = seed
+    outFile['caseSpecificData'].attrs['velocityNoise'] = args.velocityNoise
+    outFile['caseSpecificData'].attrs['octaves'] = octaves
+    outFile['caseSpecificData'].attrs['lacunarity'] = lacunarity
+    outFile['caseSpecificData'].attrs['persistence'] = persistence
+    outFile['caseSpecificData'].attrs['baseFrequency'] = baseFrequency
+    outFile['caseSpecificData'].attrs['tileable'] = tileable
+    outFile['caseSpecificData'].attrs['kind'] = kind
+    outFile['caseSpecificData'].attrs['seed'] = seed
 
-# outFile['caseSpecificData'].attrs['rho0'] = args.rho0
-# outFile['caseSpecificData'].attrs['Pinitial'] = args.Pinitial
-# outFile['caseSpecificData'].attrs['dt'] = dt
-# outFile['caseSpecificData'].attrs['minRho'] = args.minRho
-# outFile['caseSpecificData'].attrs['maxRho'] = args.maxRho
-# outFile['caseSpecificData'].attrs['minP'] = args.minP
-# outFile['caseSpecificData'].attrs['maxP'] = args.maxP
+    outFile['caseSpecificData'].attrs['rho0'] = args.rho0
+    outFile['caseSpecificData'].attrs['Pinitial'] = args.Pinitial
+    outFile['caseSpecificData'].attrs['dt'] = dt
+    outFile['caseSpecificData'].attrs['minRho'] = args.minRho
+    outFile['caseSpecificData'].attrs['maxRho'] = args.maxRho
+    outFile['caseSpecificData'].attrs['minP'] = args.minP
+    outFile['caseSpecificData'].attrs['maxP'] = args.maxP
 
-# outFile['caseSpecificData'].attrs['verbose'] = args.verbose
-# outFile['caseSpecificData'].attrs['adaptiveHScheme'] = args.adaptiveHScheme
-# outFile['caseSpecificData'].attrs['simulationScheme'] = args.simulationScheme
-# outFile['caseSpecificData'].attrs['integrationScheme'] = args.integrationScheme
-# outFile['caseSpecificData'].attrs['kernelType'] = args.kernelType
+    outFile['caseSpecificData'].attrs['verbose'] = args.verbose
+    outFile['caseSpecificData'].attrs['adaptiveHScheme'] = args.adaptiveHScheme
+    outFile['caseSpecificData'].attrs['simulationScheme'] = args.simulationScheme
+    outFile['caseSpecificData'].attrs['integrationScheme'] = args.integrationScheme
+    outFile['caseSpecificData'].attrs['kernelType'] = args.kernelType
 
-# outFile['caseSpecificData'].attrs['CFL'] = CFL
-# outFile['caseSpecificData'].attrs['targetNeighbors'] = targetNeighbors
-# outFile['caseSpecificData'].attrs['exportInterval'] = exportInterval
-# outFile['caseSpecificData'].attrs['exportSteps'] = exportSteps
-# outFile['caseSpecificData'].attrs['newDt'] = newDt
-# outFile['caseSpecificData'].attrs['plotInterval'] = plotInterval
-# outFile['caseSpecificData'].attrs['timestamp'] = timestamp
+    outFile['caseSpecificData'].attrs['CFL'] = CFL
+    outFile['caseSpecificData'].attrs['targetNeighbors'] = targetNeighbors
+    outFile['caseSpecificData'].attrs['exportInterval'] = exportInterval
+    outFile['caseSpecificData'].attrs['exportSteps'] = exportSteps
+    outFile['caseSpecificData'].attrs['newDt'] = newDt
+    outFile['caseSpecificData'].attrs['plotInterval'] = plotInterval
+    outFile['caseSpecificData'].attrs['timestamp'] = timestamp
 
 
 gtqdms = []
@@ -522,48 +531,50 @@ for i in (range(timesteps)):
         })
         tq.update()
 
-    # frameGroup = writeParticleDataMinimal(outGroup, actualState, step = i+1, dt = dt)
+    if args.export:
+        frameGroup = writeParticleDataMinimal(outGroup, actualState, step = i+1, dt = dt)
 
-    # frameGroup.attrs['timestepCFL'] = timestepCFL
-    # frameGroup.attrs['CFLNumber'] = CFLNumber.item() if torch.is_tensor(CFLNumber) else CFLNumber
-    # frameGroup.attrs['c_s_max'] = c_s_max.item() if torch.is_tensor(c_s_max) else c_s_max
-    # frameGroup.attrs['h_min'] = h_min.item() if torch.is_tensor(h_min) else h_min
-    # frameGroup.attrs['xi'] = xi.item() if torch.is_tensor(xi) else xi
-    # frameGroup.attrs['dt_cfl'] = dt_cfl.item() if torch.is_tensor(dt_cfl) else dt_cfl
-    # frameGroup.attrs['kineticEnergy'] = kineticEnergy.item() if torch.is_tensor(kineticEnergy) else kineticEnergy
-    # frameGroup.attrs['thermalEnergy'] = thermalEnergy.item() if torch.is_tensor(thermalEnergy) else thermalEnergy
-    # frameGroup.attrs['totalEnergy'] = totalEnergy.item() if torch.is_tensor(totalEnergy) else totalEnergy
+        frameGroup.attrs['timestepCFL'] = timestepCFL
+        frameGroup.attrs['CFLNumber'] = CFLNumber.item() if torch.is_tensor(CFLNumber) else CFLNumber
+        frameGroup.attrs['c_s_max'] = c_s_max.item() if torch.is_tensor(c_s_max) else c_s_max
+        frameGroup.attrs['h_min'] = h_min.item() if torch.is_tensor(h_min) else h_min
+        frameGroup.attrs['xi'] = xi.item() if torch.is_tensor(xi) else xi
+        frameGroup.attrs['dt_cfl'] = dt_cfl.item() if torch.is_tensor(dt_cfl) else dt_cfl
+        frameGroup.attrs['kineticEnergy'] = kineticEnergy.item() if torch.is_tensor(kineticEnergy) else kineticEnergy
+        frameGroup.attrs['thermalEnergy'] = thermalEnergy.item() if torch.is_tensor(thermalEnergy) else thermalEnergy
+        frameGroup.attrs['totalEnergy'] = totalEnergy.item() if torch.is_tensor(totalEnergy) else totalEnergy
 
-    if (i % plotInterval == 0 and i > 0) or i == timesteps - 1:
-        updatePlot(densityPlotState, actualState.systemState, actualState.systemState.densities)
-        updatePlot(internalEnergyPlotState, actualState.systemState, actualState.systemState.internalEnergies)
-        updatePlot(supportPlotState, actualState.systemState, actualState.systemState.supports)
-
-
-        neighborhood, neighbors = evaluateNeighborhood(actualState.systemState, solverConfig['domain'], solverConfig['kernel'], verletScale = solverConfig['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=actualState.neighborhoodInfo)
-        numNeighbors = coo_to_csr(filterNeighborhoodByKind(actualState.systemState, neighbors.neighbors, which = 'noghost')).rowEntries
-        updatePlot(numNeighborsPlotState, actualState.systemState, numNeighbors)
-
-        # numNeighbors = coo_to_csr(filterNeighborhoodByKind(actualState.systemState, currentState[-1][1].fullAdjacency, which = 'noghost')).rowEntries
-        # numNeighbors = coo_to_csr(currentState[-1][1].fullAdjacency).rowEntries
-
-        updatePlot(velocityXPlotState, actualState.systemState, actualState.systemState.velocities)
-        # for patch in axis[0,2].patches[:]:
-        #     print(patch)
-        #     if isinstance(patch, mpl.patches.FancyArrowPatch):
-        #         patch.remove()
-        updatePlot(velocityYPlotState, actualState.systemState, actualState.systemState.velocities)
-
-        # for ax in axis.flatten():
-            # ax.set_xlim(-1, 1)
-            # ax.set_ylim(-1,1)
-
-        fig.suptitle(f'{solverConfig["schemeName"]}\n{caseName}, t = {actualState.t:2f} [step: {i:4d}], dt = {dt:.3g}, ptcls = {len(actualState.systemState.positions)}\nTotal Energy: {totalEnergy:.3g}, Kinetic Energy: {kineticEnergy:.3g}, Thermal Energy: {thermalEnergy:.3g}')
+    if args.plot:
+        if (i % plotInterval == 0 and i > 0) or i == timesteps - 1:
+            updatePlot(densityPlotState, actualState.systemState, actualState.systemState.densities)
+            updatePlot(internalEnergyPlotState, actualState.systemState, actualState.systemState.internalEnergies)
+            updatePlot(supportPlotState, actualState.systemState, actualState.systemState.supports)
 
 
-        fig.canvas.draw()
-        fig.canvas.flush_events()
-        fig.savefig(f'{imagePrefix}frame_{i:05d}.png', dpi = 200)
+            neighborhood, neighbors = evaluateNeighborhood(actualState.systemState, solverConfig['domain'], solverConfig['kernel'], verletScale = solverConfig['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=actualState.neighborhoodInfo)
+            numNeighbors = coo_to_csr(filterNeighborhoodByKind(actualState.systemState, neighbors.neighbors, which = 'noghost')).rowEntries
+            updatePlot(numNeighborsPlotState, actualState.systemState, numNeighbors)
+
+            # numNeighbors = coo_to_csr(filterNeighborhoodByKind(actualState.systemState, currentState[-1][1].fullAdjacency, which = 'noghost')).rowEntries
+            # numNeighbors = coo_to_csr(currentState[-1][1].fullAdjacency).rowEntries
+
+            updatePlot(velocityXPlotState, actualState.systemState, actualState.systemState.velocities)
+            # for patch in axis[0,2].patches[:]:
+            #     print(patch)
+            #     if isinstance(patch, mpl.patches.FancyArrowPatch):
+            #         patch.remove()
+            updatePlot(velocityYPlotState, actualState.systemState, actualState.systemState.velocities)
+
+            # for ax in axis.flatten():
+                # ax.set_xlim(-1, 1)
+                # ax.set_ylim(-1,1)
+
+            fig.suptitle(f'{solverConfig["schemeName"]}\n{caseName}, t = {actualState.t:2f} [step: {i:4d}], dt = {dt:.3g}, ptcls = {len(actualState.systemState.positions)}\nTotal Energy: {totalEnergy:.3g}, Kinetic Energy: {kineticEnergy:.3g}, Thermal Energy: {thermalEnergy:.3g}')
+
+
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+            fig.savefig(f'{imagePrefix}frame_{i:05d}.png', dpi = 200)
 # outFile.close()
 
 import os
@@ -637,10 +648,11 @@ def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):
 #     print('Done!')
 
 
-postProcess(
-    imagePrefix = imagePrefix,
-    fps = 50,
-    exportName = f'{caseName}_{nx**2}_{timestamp}_{args.gpu}',
-    targetLongEdge = 1200
-)
+if args.plot:
+    postProcess(
+        imagePrefix = imagePrefix,
+        fps = 50,
+        exportName = f'{caseName}_{nx**2}_{timestamp}_{args.gpu}',
+        targetLongEdge = 1200
+    )
 # def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):

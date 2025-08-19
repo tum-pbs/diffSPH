@@ -1,16 +1,144 @@
-python wcflows.py  --TGV 2 --cs 10 --nx 32 --dt 0.004 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --obstacle --nx 32 --dt 0.004 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --domainBoundary --nx 32 --dt 0.004 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --domainBoundary --obstacle --nx 32 --dt 0.004 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --nx 64 --dt 0.002 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --obstacle --nx 64 --dt 0.002 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --domainBoundary --nx 64 --dt 0.002 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --domainBoundary --obstacle --nx 64 --dt 0.002 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --nx 256 --dt 0.0005 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --obstacle --nx 256 --dt 0.0005 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --domainBoundary --nx 256 --dt 0.0005 --velocityNoise --seed 621797422 --export
-python wcflows.py  --TGV 2 --cs 10 --domainBoundary --obstacle --nx 256 --dt 0.0005 --velocityNoise --seed 621797422 --export
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1564495896 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1564495896 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1564495896 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1564495896 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1564495896 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1564495896 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1564495896 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1564495896 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 977620291 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 977620291 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 977620291 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 977620291 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 977620291 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 977620291 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 977620291 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 977620291 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 57492470 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 57492470 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 57492470 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 57492470 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 57492470 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 57492470 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 57492470 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 57492470 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1311708935 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1311708935 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1311708935 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1311708935 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1311708935 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1311708935 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1311708935 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1311708935 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1112811603 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1112811603 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1112811603 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1112811603 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1112811603 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1112811603 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1112811603 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1112811603 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1253265444 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1253265444 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1253265444 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1253265444 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1253265444 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1253265444 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1253265444 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1253265444 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 2553063919 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2553063919 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 2553063919 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2553063919 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 2553063919 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2553063919 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 2553063919 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2553063919 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 3260417459 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 3260417459 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 3260417459 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 3260417459 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 3260417459 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 3260417459 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 3260417459 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 3260417459 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1375697275 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1375697275 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1375697275 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1375697275 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 1375697275 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1375697275 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 1375697275 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 1375697275 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 204996526 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 204996526 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 204996526 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 204996526 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 204996526 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 204996526 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 204996526 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 204996526 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 434492098 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 434492098 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 434492098 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 434492098 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 434492098 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 434492098 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 434492098 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 434492098 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 2542538351 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2542538351 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 2542538351 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2542538351 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 2542538351 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2542538351 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 2542538351 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2542538351 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 614294225 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 614294225 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 614294225 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 614294225 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 614294225 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 614294225 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 614294225 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 614294225 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 2477264820 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2477264820 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 2477264820 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2477264820 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 2477264820 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2477264820 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 2477264820 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 2477264820 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 560982973 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 560982973 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 560982973 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 560982973 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 560982973 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 560982973 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 560982973 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 560982973 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 302589408 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 302589408 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 302589408 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 302589408 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --velocityNoise --seed 302589408 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 302589408 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --seed 302589408 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --seed 302589408 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --TGV 2 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --TGV 2 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --TGV 2 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --TGV 2 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --TGV 2 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --TGV 2 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --TGV 2 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --TGV 2 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --TGV 4 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --TGV 4 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --TGV 4 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --TGV 4 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipv3/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --TGV 4 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --TGV 4 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --velocityNoise --TGV 4 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --velocityNoise --TGV 4 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipv3/

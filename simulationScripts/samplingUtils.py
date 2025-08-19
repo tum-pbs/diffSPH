@@ -50,7 +50,7 @@ from diffSPH.neighborhood import filterNeighborhood, filterNeighborhoodByKind, c
 from diffSPH.operations import SPHOperation, Operation, GradientMode
 
 def sampleRamp(particleState, potentialField, domain, config, neighborhood, neighbors, smoothingSteps  = 4):
-    ramp = generateRamp(particleState, config) if len([r for r in config['regions'] if r['type'] == 'boundary']) > 0 else 1
+    ramp = generateRamp(particleState, config) if len([r for r in config['regions'] if r['type'] == 'boundary']) > 0 else torch.ones_like(particleState.densities)
 
     neighs = neighbors.get('noghost')
 
@@ -104,7 +104,7 @@ def sampleTGV(particleState, domain, config, k_, smoothingSteps = 4):
         phaseShift_y = 0
     k = k_/2
     if k % 2 == 0:
-        potentialField = torch.sin(np.pi * k * particleState.positions[:,0]) * torch.sin(np.pi * k * particleState.positions[:,1]) / 6
+        potential = torch.sin(np.pi * k * particleState.positions[:,0]) * torch.sin(np.pi * k * particleState.positions[:,1]) / 6
     else:
         potential = torch.cos(np.pi * k * particleState.positions[:,0] + phaseShift_x) * torch.cos(np.pi * k * particleState.positions[:,1] + phaseShift_y) / 6
 

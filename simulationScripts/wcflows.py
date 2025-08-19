@@ -53,14 +53,18 @@ parser.add_argument('--tileable', type=bool, default=True, help='Whether the noi
 parser.add_argument('--kind', type=str, default='perlin', help='Type of noise to generate.')
 parser.add_argument('--seed', type=int, default=4235, help='Seed for the random number generator.')
 
-parser.add_argument('--TGV', type=int, default=1, help='Turbulent kinetic energy for the noise field.')
+parser.add_argument('--TGV', type=int, default=0, help='Turbulent kinetic energy for the noise field.')
 parser.add_argument('--normalizeEnergy', action='store_true', help='Whether to normalize the energy of the noise field.')
 parser.add_argument('--initialEnergyTarget', type=float, default=1.0, help='Target energy for the initial noise field.')
 
 parser.add_argument('--obstacle', action='store_true', help='Whether to include an obstacle in the simulation.')
 parser.add_argument('--domainBoundary', action='store_true', help='Whether to use a domain boundary for the simulation.')
-parser.add_argument('--boundaryViscosity', type=float, default=0.001, help='Viscosity for the boundary particles.')
+parser.add_argument('--boundaryViscosity', type=float, default=0.01, help='Viscosity for the boundary particles.')
+
+parser.add_argument('--plot', dest='plot', action='store_true', default=True, help='Whether to plot the regions in the simulation.')
+parser.add_argument('--no-plot', dest='plot', action='store_false', help='Disable plotting of the regions in the simulation.')
 parser.add_argument('--export', action='store_true', help='Whether to export the simulation data to a file.')
+parser.add_argument('--exportDir', type=str, default='./out/', help='Directory to export the simulation data to.')
 
 parser.add_argument('--rho0', type=float, default=1.0, help='Initial density of the particles.')
 parser.add_argument('--Pinitial', type=float, default=1.0, help='Initial pressure of the particles.')
@@ -95,8 +99,8 @@ nx = args.nx
 currentTime = datetime.datetime.now()
 timestamp = currentTime.strftime("%Y-%m-%d_%H-%M-%S")
 fileName = f'{args.caseName}_{args.domainBoundary}_{args.obstacle}_{args.TGV}_{nx**2}_{timestamp}_{args.seed}'
-imagePrefix = f'./images/{fileName}/'
-exportName = f'./data/{fileName}.h5'
+imagePrefix = f'{args.exportDir}/images/{fileName}/'
+exportName = f'{args.exportDir}/data/{fileName}.h5'
 
 
 
@@ -211,81 +215,22 @@ from diffSPH.neighborhood import filterNeighborhood, filterNeighborhoodByKind, c
 from diffSPH.operations import SPHOperation, Operation, GradientMode
 from diffSPH.modules.density import computeDensity
 
+from samplingUtils import plotSampling, sampleDivergenceFreeNoise, sampleTGV
+
+
+
+
 particleState, config, rigidBodies = initializeSimulation(scheme, config, regions)
 particleState.positions = shuffleParticles(particleState, config, 4)
 
 if args.velocityNoise:
-    velocities = sampleDivergenceFreeNoise(particleState, domain, config, nx * 2, octaves = octaves, lacunarity = lacunarity, persistence = persistence, baseFrequency = baseFrequency, tileable = True, kind = kind, seed = seed)
-    particleState.velocities[:] = velocities
-
+    velocities, potential, ramp = sampleDivergenceFreeNoise(particleState, domain, config, nx * 2, smoothingSteps = 4, octaves = octaves, lacunarity = lacunarity, persistence = persistence, baseFrequency = baseFrequency, tileable = tileable, kind = kind, seed = seed)
+    # fig, axis = plotSampling(particleState, domain, config, velocities, ramp, potential, s = s)
 else:
-    u_mag = 1
+    velocities, potential, ramp = sampleTGV(particleState, domain, config, k_ = args.TGV, smoothingSteps = 4)
+    # fig, axis = plotSampling(particleState, domain, config, velocities, ramp, potential, s = s)
 
-    k_ = args.TGV
-
-
-    ktgv = k_ / 2
-    if k_ % 2 == 0:
-        phaseShift_x = np.pi / 2# / k
-        phaseShift_y = np.pi / 2# / k
-    else:
-        phaseShift_x = 0
-        phaseShift_y = 0
-
-    particleState.velocities[:,0] =  u_mag * torch.cos(ktgv * np.pi * particleState.positions[:,0] + phaseShift_x) * torch.sin(ktgv * np.pi * particleState.positions[:,1] + phaseShift_y)
-    particleState.velocities[:,1] = -u_mag * torch.sin(ktgv * np.pi * particleState.positions[:,0] + phaseShift_x) * torch.cos(ktgv * np.pi * particleState.positions[:,1] + phaseShift_y)
-
-
-
-    k = k_/2
-    if k % 2 == 0:
-        potentialField = torch.sin(np.pi * k * particleState.positions[:,0]) * torch.sin(np.pi * k * particleState.positions[:,1]) / 6
-    else:
-        potentialField = torch.cos(np.pi * k * particleState.positions[:,0] + phaseShift_x) * torch.cos(np.pi * k * particleState.positions[:,1] + phaseShift_y) / 6
-    # TGV Potential field
-    # potential = torch.sin(np.pi * 2 * particleState.positions[:,0]) * torch.sin(np.pi * 2 * particleState.positions[:,1]) / 6
-    # ramped = potentialField * ramp
-
-    filteredState = copy.deepcopy(particleState)
-    # filteredState['fluid']['potential'] = ramped
-
-    neighborhood, neighbors = evaluateNeighborhood(particleState, domain, config['kernel'], verletScale = config['neighborhood']['verletScale'], mode =  SupportScheme.SuperSymmetric, priorNeighborhood=None)
-
-    # noiseGen = generateNoiseInterpolator(nxGrid, nxGrid, domain, dim = domain.dim, octaves = octaves, lacunarity = lacunarity, persistence = persistence, baseFrequency = baseFrequency, tileable = tileable, kind = kind, seed = seed)
-
-    dtype = particleState.positions.dtype
-    ramp = generateRamp(particleState, config) if len([r for r in config['regions'] if r['type'] == 'boundary']) > 0 else 1
-    potential = potentialField * ramp
-
-    rho = computeDensity(particleState, config['kernel'], neighbors.get('noghost'), SupportScheme.Scatter, config) 
-    priorDensity = particleState.densities.clone() 
-    particleState.densities = rho
-
-    gradTerm = SPHOperation(particleState, potential, config['kernel'], neighbors.get('noghost')[0], neighbors.get('noghost')[1], Operation.Gradient, SupportScheme.Scatter, GradientMode.Difference)
-
-    # sph_op(particleState, particleState, domain, config['kernel'], sparseNeighborhood, operation = 'gradient', supportScheme = 'symmetric', quantity = potential, gradientMode = 'difference')
-
-    velocities = torch.stack([gradTerm[:,1], -gradTerm[:,0]], dim = 1)
-    velocities = velocities / torch.linalg.norm(velocities, dim = 1, keepdim = True).max()
-
-    velocities[particleState.kinds != 0, :] = 0
-
-    particleState.densities = priorDensity
-    particleState.velocities = velocities
-
-    # ktgv = k_ / 2
-    # if k_ % 2 == 0:
-    #     phaseShift_x = np.pi / 2# / k
-    #     phaseShift_y = np.pi / 2# / k
-    # else:
-    #     phaseShift_x = 0
-    #     phaseShift_y = 0
-
-    # velocities = torch.zeros_like(particleState.positions, device=device, dtype=dtype)
-    # velocities[:,0] = u_mag * torch.cos(ktgv * np.pi * particleState.positions[:,0] + phaseShift_x) * torch.sin(ktgv * np.pi * particleState.positions[:,1] + phaseShift_y)
-    # velocities[:,1] = -u_mag * torch.sin(ktgv * np.pi * particleState.positions[:,0] + phaseShift_x) * torch.cos(ktgv * np.pi * particleState.positions[:,1] + phaseShift_y)
-    # particleState.velocities[:] = velocities
-
+particleState.velocities[:, :] = velocities
 
 E_k0 = 0.5 * particleState.masses * torch.linalg.norm(particleState.velocities, dim = -1)**2
 totalInitialEnergy = E_k0.sum()
@@ -321,7 +266,9 @@ if config['fluid']['c_s'] >= c_s_CFL:
 
 if args.export:
     os.makedirs(os.path.dirname(exportName), exist_ok = True)
-os.makedirs(imagePrefix, exist_ok = True)
+
+if args.plot or args.export:
+    os.makedirs(imagePrefix, exist_ok = True)
 
 from diffSPH.neighborhood import evaluateNeighborhood, filterNeighborhoodByKind, coo_to_csr
 
@@ -383,44 +330,45 @@ def plotScalar(fig, axis, label, fluidParticles, quantity, domain, solverConfig,
                      markerSize = s,
                      gridVisualization=gridVisualization, gridResolution=gridResolution, vmin=vmin, vmax=vmax)
 
+if args.plot:
 
-fig, axis = plt.subplots(2, 3, figsize=(15, 8.5), squeeze=False, sharex=True, sharey=True)
+    fig, axis = plt.subplots(2, 3, figsize=(15, 8.5), squeeze=False, sharex=True, sharey=True)
 
-s = 4
-if nx == 32:
-    s = 16
-if nx == 64:
     s = 4
-if nx == 128:
-    s = 1
-if nx == 256:
-    s = 0.5
+    if nx == 32:
+        s = 16
+    if nx == 64:
+        s = 4
+    if nx == 128:
+        s = 1
+    if nx == 256:
+        s = 0.5
 
 
-fluidParticles = actualState.systemState
+    fluidParticles = actualState.systemState
 
 
-densityPlotState        = plotScalar(fig, axis[0,0], 'Velocity magnitude',     fluidParticles, fluidParticles.velocities,           domain, config, s, gridVisualization=True, gridResolution=256, cmap = 'viridis', mapping = 'L2')
-internalEnergyPlotState = plotScalar(fig, axis[0,1], 'Density $\\rho$', fluidParticles, fluidParticles.densities ,     domain, config, s, gridVisualization=True, gridResolution=256, cmap = 'RdBu_r', mapping = None)
-supportPlotState        = plotScalar(fig, axis[0,2], 'Particle Index',         fluidParticles, fluidParticles.UIDs,            domain, config, s, gridVisualization=False, gridResolution=256, cmap = 'magma', mapping = None)
-numNeighborsPlotState   = plotScalar(fig, axis[1,2], 'Number of Neighbors', fluidParticles, fluidParticles.numNeighbors,        domain, config, s, gridVisualization=True, gridResolution=256, mapping = '.y', cmap = 'viridis')
-velocityXPlotState      = plotScalar(fig, axis[1,0], 'Velocity X',          fluidParticles, fluidParticles.velocities,          domain, config, s, gridVisualization=True, gridResolution=256, mapping = '.x', cmap = 'RdBu_r')
-velocityYPlotState      = plotScalar(fig, axis[1,1], 'Velocity Y',          fluidParticles, fluidParticles.velocities,          domain, config, s, gridVisualization=True, gridResolution=256, mapping = '.y', cmap = 'RdBu_r')
+    densityPlotState        = plotScalar(fig, axis[0,0], 'Velocity magnitude',     fluidParticles, fluidParticles.velocities,           domain, config, s, gridVisualization=True, gridResolution=256, cmap = 'viridis', mapping = 'L2')
+    internalEnergyPlotState = plotScalar(fig, axis[0,1], 'Density $\\rho$', fluidParticles, fluidParticles.densities ,     domain, config, s, gridVisualization=True, gridResolution=256, cmap = 'RdBu_r', mapping = None)
+    supportPlotState        = plotScalar(fig, axis[0,2], 'Particle Index',         fluidParticles, fluidParticles.UIDs,            domain, config, s, gridVisualization=False, gridResolution=256, cmap = 'magma', mapping = None)
+    numNeighborsPlotState   = plotScalar(fig, axis[1,2], 'Number of Neighbors', fluidParticles, fluidParticles.numNeighbors,        domain, config, s, gridVisualization=True, gridResolution=256, mapping = '.y', cmap = 'viridis')
+    velocityXPlotState      = plotScalar(fig, axis[1,0], 'Velocity X',          fluidParticles, fluidParticles.velocities,          domain, config, s, gridVisualization=True, gridResolution=256, mapping = '.x', cmap = 'RdBu_r')
+    velocityYPlotState      = plotScalar(fig, axis[1,1], 'Velocity Y',          fluidParticles, fluidParticles.velocities,          domain, config, s, gridVisualization=True, gridResolution=256, mapping = '.y', cmap = 'RdBu_r')
 
-# for ax in axis.flatten():
-    # ax.set_xlim(-1, 1)
-    # ax.set_ylim(-1,1)
-# kineticEnergy = 0.5 * (torch.linalg.norm(actualState.systemState.velocities, dim = -1) **2 * actualState.systemState.masses).sum()
-# thermalEnergy = (actualState.systemState.internalEnergies * actualState.systemState.masses).sum()
-# totalEnergy = kineticEnergy + thermalEnergy
-
-
-fig.suptitle(f'{args.caseName}, ptcls = {particleState.positions.shape[0]}, kernel = {config["kernel"].name}, neighbors = {config["targetNeighbors"]:.2g}, $c_s$ = {config["fluid"]["c_s"]:.1f}\n$\\rho$ = [{rhoMin:.4g} | {rhoMean:.4g} | {rhoMax:.4g}], $E_0$ = {totalInitialEnergy:.4g}, $E$ = {totalEnergy:.4g}, $\\Delta E$ = {totalEnergy - totalInitialEnergy:.4g}, $t$ = {particleSystem.t:.4g}, $\\Delta t$ = {dt:.2e}')
+    # for ax in axis.flatten():
+        # ax.set_xlim(-1, 1)
+        # ax.set_ylim(-1,1)
+    # kineticEnergy = 0.5 * (torch.linalg.norm(actualState.systemState.velocities, dim = -1) **2 * actualState.systemState.masses).sum()
+    # thermalEnergy = (actualState.systemState.internalEnergies * actualState.systemState.masses).sum()
+    # totalEnergy = kineticEnergy + thermalEnergy
 
 
-fig.tight_layout()
+    fig.suptitle(f'{args.caseName}, ptcls = {particleState.positions.shape[0]}, kernel = {config["kernel"].name}, neighbors = {config["targetNeighbors"]:.2g}, $c_s$ = {config["fluid"]["c_s"]:.1f}\n$\\rho$ = [{rhoMin:.4g} | {rhoMean:.4g} | {rhoMax:.4g}], $E_0$ = {totalInitialEnergy:.4g}, $E$ = {totalEnergy:.4g}, $\\Delta E$ = {totalEnergy - totalInitialEnergy:.4g}, $t$ = {particleSystem.t:.4g}, $\\Delta t$ = {dt:.2e}')
 
-fig.savefig(f'{imagePrefix}frame_{0:05d}.png', dpi = 200)
+
+    fig.tight_layout()
+
+    fig.savefig(f'{args.exportDir}/{imagePrefix}frame_{0:05d}.png', dpi = 200)
 # fig.savefig(f'{fileName}.png', dpi = 200)
 
 # exit()
@@ -529,37 +477,38 @@ for i in (range(timesteps)):
         frameGroup.attrs['thermalEnergy'] = thermalEnergy.item() if torch.is_tensor(thermalEnergy) else thermalEnergy
         frameGroup.attrs['totalEnergy'] = totalEnergy.item() if torch.is_tensor(totalEnergy) else totalEnergy
 
-    if (i % plotInterval == 0 and i > 0) or i == timesteps - 1:
-        updatePlot(densityPlotState, actualState.systemState, actualState.systemState.velocities)
-        updatePlot(internalEnergyPlotState, actualState.systemState, actualState.systemState.densities)
-        updatePlot(supportPlotState, actualState.systemState, actualState.systemState.UIDs)
+    if args.plot:
+        if (i % plotInterval == 0 and i > 0) or i == timesteps - 1:
+            updatePlot(densityPlotState, actualState.systemState, actualState.systemState.velocities)
+            updatePlot(internalEnergyPlotState, actualState.systemState, actualState.systemState.densities)
+            updatePlot(supportPlotState, actualState.systemState, actualState.systemState.UIDs)
 
 
-        neighborhood, neighbors = evaluateNeighborhood(actualState.systemState, config['domain'], config['kernel'], verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=actualState.neighborhoodInfo)
+            neighborhood, neighbors = evaluateNeighborhood(actualState.systemState, config['domain'], config['kernel'], verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=actualState.neighborhoodInfo)
 
-        numNeighbors = coo_to_csr(filterNeighborhoodByKind(actualState.systemState, neighbors.neighbors, which = 'noghost')).rowEntries
-        updatePlot(numNeighborsPlotState, actualState.systemState, numNeighbors)
+            numNeighbors = coo_to_csr(filterNeighborhoodByKind(actualState.systemState, neighbors.neighbors, which = 'noghost')).rowEntries
+            updatePlot(numNeighborsPlotState, actualState.systemState, numNeighbors)
 
-        # numNeighbors = coo_to_csr(filterNeighborhoodByKind(actualState.systemState, currentState[-1][1].fullAdjacency, which = 'noghost')).rowEntries
-        # numNeighbors = coo_to_csr(currentState[-1][1].fullAdjacency).rowEntries
+            # numNeighbors = coo_to_csr(filterNeighborhoodByKind(actualState.systemState, currentState[-1][1].fullAdjacency, which = 'noghost')).rowEntries
+            # numNeighbors = coo_to_csr(currentState[-1][1].fullAdjacency).rowEntries
 
-        updatePlot(velocityXPlotState, actualState.systemState, actualState.systemState.velocities)
-        # for patch in axis[0,2].patches[:]:
-        #     print(patch)
-        #     if isinstance(patch, mpl.patches.FancyArrowPatch):
-        #         patch.remove()
-        updatePlot(velocityYPlotState, actualState.systemState, actualState.systemState.velocities)
+            updatePlot(velocityXPlotState, actualState.systemState, actualState.systemState.velocities)
+            # for patch in axis[0,2].patches[:]:
+            #     print(patch)
+            #     if isinstance(patch, mpl.patches.FancyArrowPatch):
+            #         patch.remove()
+            updatePlot(velocityYPlotState, actualState.systemState, actualState.systemState.velocities)
 
-        # for ax in axis.flatten():
-            # ax.set_xlim(-1, 1)
-            # ax.set_ylim(-1,1)
+            # for ax in axis.flatten():
+                # ax.set_xlim(-1, 1)
+                # ax.set_ylim(-1,1)
 
-        fig.suptitle(f'{simulationName}, ptcls = {particleSystem.systemState.positions.shape[0]}, kernel = {config["kernel"].name}, neighbors = {config["targetNeighbors"]:.2g}, $c_s$ = {config["fluid"]["c_s"]:.1f}\n$\\rho$ = [{rhoMin:.4g} | {rhoMean:.4g} | {rhoMax:.4g}], $E_0$ = {totalInitialEnergy:.4g}, $E$ = {totalEnergy:.4g}, $\\Delta E$ = {totalEnergy - totalInitialEnergy:.4g}, $t$ = {t:.4g}, $\\Delta t$ = {dt:.2e}')
+            fig.suptitle(f'{simulationName}, ptcls = {particleSystem.systemState.positions.shape[0]}, kernel = {config["kernel"].name}, neighbors = {config["targetNeighbors"]:.2g}, $c_s$ = {config["fluid"]["c_s"]:.1f}\n$\\rho$ = [{rhoMin:.4g} | {rhoMean:.4g} | {rhoMax:.4g}], $E_0$ = {totalInitialEnergy:.4g}, $E$ = {totalEnergy:.4g}, $\\Delta E$ = {totalEnergy - totalInitialEnergy:.4g}, $t$ = {t:.4g}, $\\Delta t$ = {dt:.2e}')
 
 
-        fig.canvas.draw()
-        fig.canvas.flush_events()
-        fig.savefig(f'{imagePrefix}frame_{i:05d}.png', dpi = 200)
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+            fig.savefig(f'{args.exportDir}/{imagePrefix}frame_{i:05d}.png', dpi = 200)
 
 if args.export:
     outFile.close()
@@ -610,10 +559,11 @@ def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):
     print('Done!')
 
 
-postProcess(
-    imagePrefix = imagePrefix,
-    fps = 50,
-    exportName = fileName,
-    targetLongEdge = 1200
-)
+if args.plot:
+    postProcess(
+        imagePrefix = imagePrefix,
+        fps = 50,
+        exportName = fileName,
+        targetLongEdge = 1200
+    )
 # def postProcess(imagePrefix, fps, exportName, targetLongEdge = 600):

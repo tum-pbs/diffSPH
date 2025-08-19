@@ -1,0 +1,16 @@
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --TGV 2 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipTGV/ --boundaryViscosity 0.1
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --TGV 2 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipTGV/ --boundaryViscosity 0.1
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --TGV 2 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipTGV/ --boundaryViscosity 0.1
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --TGV 2 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipTGV/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --TGV 2 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipTGV/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --TGV 2 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipTGV/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --TGV 2 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipTGV/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --TGV 2 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipTGV/
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --TGV 4 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipTGV/ --boundaryViscosity 0.1
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --TGV 4 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipTGV/ --boundaryViscosity 0.1
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --TGV 4 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipTGV/ --boundaryViscosity 0.1
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --TGV 4 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/noSlipTGV/ --boundaryViscosity 0.1
+clear && python wcflows.py  --cs 10 --nx 128 --dt 0.001 --TGV 4 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipTGV/
+clear && python wcflows.py  --cs 10 --obstacle --nx 128 --dt 0.001 --TGV 4 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipTGV/
+clear && python wcflows.py  --cs 10 --domainBoundary --nx 128 --dt 0.001 --TGV 4 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipTGV/
+clear && python wcflows.py  --cs 10 --domainBoundary --obstacle --nx 128 --dt 0.001 --TGV 4 --boundaryViscosity 0.00 --no-plot --export --exportDir /mnt/ssdraid/rene/datasets/weaklyCompressible/freeSlipTGV/
