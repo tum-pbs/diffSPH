@@ -137,7 +137,8 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
         if torch.any(particles.kinds > 1):
             with record_function("[deltaSPH] - 10 - Boundary Viscosity"):
                 if 'boundary' not in config['diffusion'] or config['diffusion']['boundary'] > 0.:
-                    dvdt_diss += computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config)
+                    dvdt_diss += computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config, alphaOverride=config['diffusion'].get('boundary', None))
+                    # print(f'[deltaSPH] - [Update] - Boundary viscosity: {config["diffusion"].get("boundary", None)}')
         checkTensor(dvdt_diss, domain.min.dtype, domain.min.device, 'viscosity diffusion')
     
     with record_function("[deltaSPH] - 11 - Divergence"):

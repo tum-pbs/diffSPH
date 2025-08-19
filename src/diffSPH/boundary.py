@@ -273,6 +273,9 @@ def computeBoundaryVelocities(
         materialMask = torch.logical_and(particleState.kinds == 1, particleState.materials == material)        
         materialGhostMask = particleState.materials[bIndices] == material
         
+        if material > len(boundaryRegions) - 1:
+            continue
+
         region = boundaryRegions[material]
         
         if region['kind'] == 'constant' or region['kind'] == 'none' or region['kind'] == 'driven':

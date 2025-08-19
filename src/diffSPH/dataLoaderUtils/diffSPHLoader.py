@@ -55,24 +55,39 @@ def loadFrameDiffSPH(inFile, rootGroup, key, device, dtype):
                         mass= torch.tensor(bodyGroup.attrs['mass'], device=device, dtype=dtype),
                         inertia= torch.tensor(bodyGroup.attrs['inertia'], device=device, dtype=dtype),
                     )
+                    rigidBodies.append(rb)
 
         boundaryNormals = None
         boundaryDistances = None
+        boundaryIndices = None
 
-        if 'ghostOffsets' in inGroup:
+        # print(inGroup.keys())
+        if 'ghostOffsets' in inGroup.keys():
+            # print('Loading ghost offsets from inGroup')
             boundaryNormals = torch.tensor(inGroup['ghostOffsets'][:], device=device, dtype=dtype)
+            boundaryDistances = torch.norm(boundaryNormals, dim=1) / 2
             boundaryNormals = torch.nn.functional.normalize(boundaryNormals, dim=1)
-        elif 'ghostOffsets'in rootGroup:
+        elif 'ghostOffsets' in rootGroup.keys():
             boundaryNormals = torch.tensor(rootGroup['ghostOffsets'][:], device=device, dtype=dtype)
+            boundaryDistances = torch.norm(boundaryNormals, dim=1) / 2
             boundaryNormals = torch.nn.functional.normalize(boundaryNormals, dim=1)
         else:
             pass
-        if 'ghostDistances' in inGroup:
+
+        if 'ghostDistances' in inGroup.keys():
             boundaryDistances = torch.tensor(inGroup['ghostDistances'][:], device=device, dtype=dtype) / 2
-        elif 'ghostDistances' in rootGroup:
+        elif 'ghostDistances' in rootGroup.keys():
             boundaryDistances = torch.tensor(rootGroup['ghostDistances'][:], device=device, dtype=dtype) / 2
         else:
             pass
+        if 'ghostIndices' in inGroup.keys():
+            boundaryIndices = torch.tensor(inGroup['ghostIndices'][:], device=device, dtype=torch.int64)
+        elif 'ghostIndices' in rootGroup.keys():
+            boundaryIndices = torch.tensor(rootGroup['ghostIndices'][:], device=device, dtype=torch.int64)
+        else:
+            boundaryIndices = None
+
+    
         
 
         state = WeaklyCompressibleSPHState(
@@ -92,7 +107,8 @@ def loadFrameDiffSPH(inFile, rootGroup, key, device, dtype):
 
             rigidBodies=rigidBodies,
             boundaryNormals=boundaryNormals,
-            boundaryDistances=boundaryDistances
+            boundaryDistances=boundaryDistances,
+            boundaryIndices=boundaryIndices
         )
         return state
     
@@ -108,6 +124,7 @@ except ImportError as e:
 
 import copy
 from diffSPH.dataLoaderUtils.neighborhood import AugmentedDomainDescription
+from diffSPH.util import ParticleSet
 
 def loadDiffSPHState(inFile, key, configuration, device, dtype):
     rootGroup = inFile['simulationData']['%06d' % 0]
@@ -154,9 +171,29 @@ def loadDiffSPHState(inFile, key, configuration, device, dtype):
         parsedConfig[attr] = inFile['config'].attrs[attr]
 
     for key in inFile['config'].keys():
+        # print(f'Parsing config key: {key}')
         parsedConfig[key] = {}
         for attr in inFile['config'][key].attrs:
             parsedConfig[key][attr] = inFile['config'][key].attrs[attr]
 
+
+    regions = [c for c in parsedConfig.keys() if c.startswith('region_')]
+    regionList = []
+    for region in regions:
+        regionList.append({
+            'type': parsedConfig[region]['type'],
+            'kind': parsedConfig[region]['kind'],
+            'particles': ParticleSet(
+                positions = torch.tensor(inFile['config'][region]['particles'][:], device=device, dtype=dtype),
+                densities = torch.tensor(inFile['config'][region]['densities'][:], device=device, dtype=dtype),
+                masses = torch.tensor(inFile['config'][region]['masses'][:], device=device, dtype=dtype),
+                supports = torch.tensor(inFile['config'][region]['supports'][:], device=device, dtype=dtype),
+            )
+        })
+    parsedConfig['regions'] = regionList
+
+    parsedConfig['attributes'] = {}
+    for key in inFile.attrs:
+        parsedConfig['attributes'][key] = inFile.attrs[key]
 
     return priorStates, currentState, trajectoryStates, domain, parsedConfig

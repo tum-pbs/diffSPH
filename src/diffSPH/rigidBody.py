@@ -95,7 +95,7 @@ def buildRigidBody(particleState, config, bodyId):
     ghostIndices = torch.logical_and(particleState.kinds == 2, particleState.materials == bodyId)
 
     boundaryRegions = [region for region in config['regions'] if region['type'] == 'boundary']
-    currentRegion = boundaryRegions[bodyId]
+    currentRegion = boundaryRegions[bodyId] if len(boundaryRegions) > bodyId else None
 
     # print(torch.sum(particleIndices), torch.sum(ghostIndices))
     if(torch.sum(particleIndices) == 0):
@@ -141,8 +141,8 @@ def buildRigidBody(particleState, config, bodyId):
         ghostParticleBoundaryNormals=particleState.ghostOffsets[ghostIndices],
 
         bodyID=bodyId,
-        sdf = currentRegion['sdf'],
-        kind= currentRegion['kind'],
+        sdf = currentRegion['sdf'] if currentRegion is not None and 'sdf' in currentRegion else None,
+        kind= currentRegion['kind'] if currentRegion is not None and 'kind' in currentRegion else None,
     )
 
 def getTransformationMatrix(rigidBody : RigidBody):

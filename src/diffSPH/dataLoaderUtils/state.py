@@ -49,6 +49,7 @@ class WeaklyCompressibleSPHState:
 
     boundaryNormals: Optional[torch.Tensor] = None
     boundaryDistances: Optional[torch.Tensor] = None
+    boundaryIndices: Optional[torch.Tensor] = None # indices of boundary particles, used for rigid body simulation
 
     rigidBodies: Optional[List[RigidBodyState]] = None
     batches: Optional[torch.Tensor] = None # batch IDs for particles, used for parallel processing

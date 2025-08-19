@@ -82,12 +82,13 @@ def computeViscosity_deltaSPH_inviscid(
         kernel: SPHKernel,
         neighborhood: Tuple[SparseNeighborhood, PrecomputedNeighborhood],
         supportScheme: SupportScheme = SupportScheme.Gather,
-        config: Dict = {}):
+        config: Dict = {},
+        alphaOverride: float = None):
     # with record_function("[SPH] - [Viscosity (deltaSPH)]"):
     i, j = neighborhood[0].row, neighborhood[0].col
     densities = particles.densities if isinstance(particles, CompressibleState) else particles.densities
-    alpha = 0.01
-    
+    alpha = alphaOverride if alphaOverride is not None else 0.01
+
     Pi_delta = checkpoint(compute_Pi, particles, particles, neighborhood[0].domain, neighborhood[0], {
         'diffusion':{
             'correctXi': True,

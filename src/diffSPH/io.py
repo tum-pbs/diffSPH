@@ -102,6 +102,19 @@ from enum import Enum
 from torchCompactRadius.util import DomainDescription
 import diffSPH
 
+def convertRegionToDict(region):
+    print(f'Converting region {region} to dictionary')
+    print(f'Keys: {region.keys()}')
+    regionDict = {
+        'type': region['type'],
+        'kind': region['kind'],
+        # 'positions': region['particles'].positions.cpu().numpy().tolist(),
+        # 'densities': region['particles'].densities.cpu().numpy().tolist(),
+        # 'masses': region['particles'].masses.cpu().numpy().tolist(),
+    }
+    return regionDict
+
+
 def initializeOutputFile(outFileName, particleSystem, config, simulationName):
     outFile = h5py.File(outFileName, 'w')
 
@@ -161,10 +174,22 @@ def initializeOutputFile(outFileName, particleSystem, config, simulationName):
     configGroup = outFile.create_group('config')
     for key, value in config.items():
         # print(f'Writing config key: {key}')
-        if key == 'regions' or key == 'rigidBodies':
+        if key == 'rigidBodies':
             continue
-        
-        if isinstance(value, torch.Tensor):
+
+        if key == 'regions':
+            for r, region in enumerate(value):
+                regionDict = convertRegionToDict(region)
+                regionGroup = configGroup.create_group(f'region_{r:03d}')
+                for k, v in regionDict.items():
+                    regionGroup.attrs[k] = v
+
+                regionGroup.create_dataset('particles', data = region['particles'].positions.cpu().numpy())
+                regionGroup.create_dataset('masses', data = region['particles'].masses.cpu().numpy())
+                regionGroup.create_dataset('densities', data = region['particles'].densities.cpu().numpy())
+                regionGroup.create_dataset('supports', data = region['particles'].supports.cpu().numpy())
+
+        elif isinstance(value, torch.Tensor):
             configGroup.create_dataset(key, data = value.cpu().numpy())
         elif isinstance(value, dict):
             subGroup = configGroup.create_group(key)
@@ -187,6 +212,7 @@ def initializeOutputFile(outFileName, particleSystem, config, simulationName):
         elif isinstance(value, Enum):
             configGroup.attrs[key] = value.value
         else:
+            # print(f'Writing config key: {key} with value: {value}')
             configGroup.attrs[key] = value
 
     simulationData = outFile.create_group('simulationData')
