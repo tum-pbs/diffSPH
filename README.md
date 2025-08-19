@@ -1,7 +1,9 @@
 ![](logov1.png)
 <!-- # diffSPH - A Framework for differentiable SPH Simulations -->
 
-[![arXiv](https://img.shields.io/badge/arXiv-2507.21684-<COLOR>.svg)](https://arxiv.org/abs/2507.21684)
+[![arXiv](https://img.shields.io/badge/arXiv-2507.21684-<COLOR>.svg)](https://arxiv.org/abs/2507.21684) <a target="_blank" href="https://colab.research.google.com/github/https://colab.research.google.com/drive/15sAHBH3j-7QS6W6Xo5vo3vyEC36-pKTD?usp=sharing">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
 
 diffSPH is an open-source Smoothed Particle Hydrodynamics simulation framework built for adjoint problem solving and machine learning applications. diffSPH is written mostly in Python using PyTorch but also supports C++/CUDA extensions. The fundamentally differentiable nature of diffSPH make it a versatile basis for many different applications of SPH. Stay tunes for more details on the applications and design of diffSPH! This is the solver at [https://diffsph.fluids.dev/](https://diffsph.fluids.dev/). You can also find the preprint of our paper on _diffSPH_ [here](https://arxiv.org/abs/2507.21684). 
 
@@ -18,6 +20,19 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install torchCompactRadius
 pip install diffSPH
 ```
+
+## Tutorials
+
+If you would like to know more about 
+- How to install diffSPH you can find a tutorial under `demos/installGuide.md`
+- How to setup a simulation: `demos/firstSimulation.md`
+- How to perform an inverse simulation: `demos/inverseSimulation.md`
+- How to generate a dataset: `demos/datasetGeneration.md`
+- How to train an offline network: `demos/exampleTraining.md`
+
+Each tutorial comes (if applicable) with a Jupyter Notebook you can run. For the first simulation example you can also find it on Colab right [here](https://colab.research.google.com/drive/15sAHBH3j-7QS6W6Xo5vo3vyEC36-pKTD?usp=sharing).
+
+
 
 
 ## Examples

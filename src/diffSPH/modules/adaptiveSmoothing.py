@@ -219,7 +219,7 @@ def evaluateOptimalSupport(
     for i in range(nIter):
         with record_function(f"[SPH] - Optimal Support - Neighbors"):
             # print(f'Iteration {i} | neighborhood: {neighborhood_ is not None}')
-            neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], kernel_, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood)
+            neighborhood, neighbors = evaluateNeighborhood(particles, config['domain'], kernel_, verletScale = verletScale, mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood)
             numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'noghost')).rowEntries
 
             # if (numNeighbors.max() > 60):
