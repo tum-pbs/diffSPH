@@ -29,7 +29,7 @@ def convertConfigKey(currentValue, newValue):
         return type(currentValue)(newValue) if newValue is not None else None
 
 
-def stateToCState(currentState, config, domain_, batch=0):
+def stateToCState(currentState, currentConfig, domain_, batch=0):
     state = CompressibleState(
         positions = currentState.positions[currentState.batches == batch],
         supports = currentState.supports[currentState.batches == batch],
@@ -56,20 +56,20 @@ def stateToCState(currentState, config, domain_, batch=0):
 
     state.totalEnergies = state.internalEnergies + 0.5 * state.masses * torch.sum(state.velocities**2, dim=1)
 
-    A_, u_, P_, c_s = idealGasEOS(A = None, u = state.internalEnergies, P = None, rho = state.densities, gamma = config['fluid']['gamma'])
+    A_, u_, P_, c_s = idealGasEOS(A = None, u = state.internalEnergies, P = None, rho = state.densities, gamma = currentConfig['fluid']['gamma'])
     # idealGasEOS
 
     state.pressures = P_
     state.soundspeeds = c_s
     state.entropies = A_
 
-    caseName = config['attributes']['caseName'] if 'caseName' in config['attributes'] else 'default'
+    caseName = currentConfig['attributes']['caseName'] if 'caseName' in currentConfig['attributes'] else 'default'
 
 
-    kernel = [k for k in KernelType if k.value == config['kernel']][0] if config['kernel'] is not None else None
-    scheme = [s for s in SimulationScheme if s.value == config['scheme']][0] if config['scheme'] is not None else None
-    integrationScheme = [i for i in IntegrationSchemeType if i.value == config['integrationScheme']][0] if config['integrationScheme'] is not None else None
-    targetNeighbors = config['targetNeighbors'] if config['targetNeighbors'] is not None else n_h_to_nH(4, domain_.dim)
+    kernel = [k for k in KernelType if k.value == currentConfig['kernel']][0] if currentConfig['kernel'] is not None else None
+    scheme = [s for s in SimulationScheme if s.value == currentConfig['scheme']][0] if currentConfig['scheme'] is not None else None
+    integrationScheme = [i for i in IntegrationSchemeType if i.value == currentConfig['integrationScheme']][0] if currentConfig['integrationScheme'] is not None else None
+    targetNeighbors = currentConfig['targetNeighbors'] if currentConfig['targetNeighbors'] is not None else n_h_to_nH(4, domain_.dim)
 
 
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
@@ -78,7 +78,7 @@ def stateToCState(currentState, config, domain_, batch=0):
     domain = DomainDescription(
         min = torch.tensor(domain_.min, device=device, dtype=dtype),
         max = torch.tensor(domain_.max, device=device, dtype=dtype),
-        dim = domain_.dim,
+        dim = int(domain_.dim),
         periodic = torch.tensor(domain_.periodic, device=device, dtype=torch.bool)
     )
 
@@ -99,6 +99,12 @@ def stateToCState(currentState, config, domain_, batch=0):
 
 
     config['caseName'] = caseName
+
+    for key in currentConfig.keys():
+        config[key] = convertConfigKey(config[key] if key in config else None, currentConfig[key])
+    config['support']['LUT'] = None
+    config['domain'].dim = int(config['domain'].dim)
+
 
     particleSystem = SimulationSystem(config['domain'], None, 0., copy.deepcopy(state))
 
@@ -133,13 +139,13 @@ def stateToWCState(currentState, currentConfig, domain_, batch = 0):
         ghostOffsets = currentState.boundaryNormals[currentState.batches == batch] * currentState.boundaryDistances[currentState.batches == batch][:,None] * 2
     )
 
-    caseName = config['attributes']['caseName'] if 'caseName' in config['attributes'] else 'default'
+    caseName = currentConfig['attributes']['caseName'] if 'caseName' in currentConfig['attributes'] else 'default'
 
 
-    kernel = [k for k in KernelType if k.value == config['kernel']][0] if config['kernel'] is not None else None
-    scheme = [s for s in SimulationScheme if s.value == config['scheme']][0] if config['scheme'] is not None else None
-    integrationScheme = [i for i in IntegrationSchemeType if i.value == config['integrationScheme']][0] if config['integrationScheme'] is not None else None
-    targetNeighbors = config['targetNeighbors'] if config['targetNeighbors'] is not None else n_h_to_nH(4, domain_.dim)
+    kernel = [k for k in KernelType if k.value == currentConfig['kernel']][0] if currentConfig['kernel'] is not None else None
+    scheme = [s for s in SimulationScheme if s.value == currentConfig['scheme']][0] if currentConfig['scheme'] is not None else None
+    integrationScheme = [i for i in IntegrationSchemeType if i.value == currentConfig['integrationScheme']][0] if config['integrationScheme'] is not None else None
+    targetNeighbors = currentConfig['targetNeighbors'] if currentConfig['targetNeighbors'] is not None else n_h_to_nH(4, domain_.dim)
 
 
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
@@ -167,8 +173,8 @@ def stateToWCState(currentState, currentConfig, domain_, batch = 0):
         scheme, kernel, integrationScheme, 
         1.0, targetNeighbors, domain)
 
-    for key in config.keys():
-        config[key] = convertConfigKey(config[key] if key in config else None, config[key])
+    for key in currentConfig.keys():
+        config[key] = convertConfigKey(config[key] if key in config else None, currentConfig[key])
 
 
     rigidBodyIDs = torch.unique(state.materials[state.kinds == 1]).cpu().numpy()

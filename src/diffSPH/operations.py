@@ -303,6 +303,7 @@ class ParticleState:
     densities: torch.Tensor
     apparentArea: Optional[torch.Tensor]
 from diffSPH.schemes.states.common import BasicState
+from diffSPH.dataLoaderUtils.state import WeaklyCompressibleSPHState, CompressibleSPHState
 
 def getParticleState(particles : Union[BasicState, CompressibleState, WeaklyCompressibleState]):
     if isinstance(particles, BasicState):
@@ -328,6 +329,22 @@ def getParticleState(particles : Union[BasicState, CompressibleState, WeaklyComp
             masses = particles.masses,
             densities = particles.densities,
             apparentArea = particles.apparentArea
+        )
+    elif isinstance(particles, WeaklyCompressibleSPHState):
+        return ParticleState(
+            positions = particles.positions,
+            supports = particles.supports,
+            masses = particles.masses,
+            densities = particles.densities,
+            apparentArea = None
+        )
+    elif isinstance(particles, CompressibleSPHState):
+        return ParticleState(
+            positions = particles.positions,
+            supports = particles.supports,
+            masses = particles.masses,
+            densities = particles.densities,
+            apparentArea = None
         )
     else:
         raise ValueError(f'Unknown type for argument {particles}')
@@ -359,6 +376,24 @@ def getCorrectionTerms(particles : Union[BasicState, CompressibleState, WeaklyCo
             gradB = particles.gradB,
             gradCorrectionMatrices=particles.gradCorrectionMatrices,
             omega = particles.omega
+        )
+    elif isinstance(particles, WeaklyCompressibleSPHState):
+        return KernelTerms(
+            A = None,
+            B = None,
+            gradA = None,
+            gradB = None,
+            gradCorrectionMatrices=None,
+            omega = None
+        )
+    elif isinstance(particles, CompressibleSPHState):
+        return KernelTerms(
+            A = None,
+            B = None,
+            gradA = None,
+            gradB = None,
+            gradCorrectionMatrices=None,
+            omega = None
         )
     else:
         raise ValueError(f'Unknown type for argument {particles}')
