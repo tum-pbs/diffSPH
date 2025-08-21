@@ -1,60 +1,165 @@
+import torch
+from ml import getActivationLayer
+import torch.nn as nn
+
+def softmax(attentionScoresSparse, sparse_values, rows, cols, sparse_indices): #batch_size, multiHeads, num_edges, sparse_values, cols, num_nodes_neighbor):
+    batch_size, multiHeads, num_nodes_neighbor, num_nodes_current = attentionScoresSparse.shape
+    # sparse_values = attentionScoresSparse.values()
+    # cols = sparse_indices[1]  # Assuming the second index is the column indices
+    num_edges = sparse_values.shape[0]
+
+    # if self.verbose:
+        # print('attentionScores shape:', attentionScores.shape)
+    # attention_weights_sparse = torch.sparse.softmax(attentionScoresSparse, dim=2)
+
+    # Let's work with a flattened view for easier scattering
+    # Shape: [B * H, num_edges]
+    scores = sparse_values.reshape(batch_size * multiHeads, -1)
+
+    # The 'cols' index needs to be broadcast to match the new shape
+    # It will guide the grouping for every head in every batch item
+    index = cols.expand_as(scores)
+
+    # print(f'===============================================================')
+    # print(f'Computing normalized attention weights for {batch_size} batches, {multiHeads} heads, {num_edges} edges')
+    # print(f'Index shape: {index.shape}, Scores shape: {scores.shape}')
+
+    # 1. Subtract max for numerical stability (a standard softmax trick)
+    # We need to find the max score for each destination node group
+    # 'scatter_max' is not native, so we use a dense intermediate for this step.
+    # It's an acceptable tradeoff as it's not on a huge tensor.
+    alpha_max = torch.zeros(batch_size * multiHeads, num_nodes_neighbor, device=scores.device).scatter_reduce_(
+        1, index, scores, reduce="amax", include_self=False
+    )
+    # print(f'Alpha max shape: {alpha_max.shape} [ {alpha_max.numel()} elements ]')
+
+    # Now gather the max value for each edge
+    scores_sub = scores - alpha_max.gather(1, index)
+    # print(f'Scores shape after subtracting max: {scores_sub.shape} [ {scores_sub.numel()} elements ]')
+
+    # 2. Exponentiate the scores
+    exp_scores = torch.exp(scores_sub)
+    # print(f'Exponentiated scores shape: {exp_scores.shape} [ {exp_scores.numel()} elements ]')
+
+    # 3. Sum the exponentiated scores for each destination node group
+    # This is the denominator of the softmax
+    exp_sum = torch.zeros(batch_size * multiHeads, num_nodes_neighbor, device=scores.device).scatter_add_(
+        1, index, exp_scores
+    )
+    # print(f'Exponentiated sum shape: {exp_sum.shape} [ {exp_sum.numel()} elements ]')
+    # Add a small epsilon to prevent division by zero
+    exp_sum = exp_sum + 1e-10
+    # print(f'Exponentiated sum after adding epsilon: {exp_sum.shape} [ {exp_sum.numel()} elements ]')
+
+    # 4. Divide each score by its group's sum to get the final weights
+    normalized_weights_flat = exp_scores / exp_sum.gather(1, index)
+    # print(f'Normalized weights shape: {normalized_weights_flat.shape} [ {normalized_weights_flat.numel()} elements ]')
+
+    return normalized_weights_flat
+
+    # attention_weights_sparse = torch.sparse_coo_tensor(
+    #     indices=sparse_indices,
+    #     values=normalized_weights_flat.flatten(),
+    #     size=attentionScoresSparse.shape
+    # )
+    # return attention_weights_sparse, normalized_weights_flat
+
+
+def buildSparseTensor(rows, cols, sparse_values, size):
+    # size = (batch_size_edges, self.multiHeads, num_nodes_current * batch_size, num_nodes_neighbor * batch_size)
+    num_edges = rows.shape[0]
+    multiHeads = size[1]
+    # 1. Create indices for the batch dimension (b)
+    # Each of the H*num_edges scores in a batch item gets the same batch index
+    b_idx = torch.arange(1, device=sparse_values.device).repeat_interleave(multiHeads * num_edges)
+
+    # 2. Create indices for the head dimension (h)
+    # Within each batch item, the indices 0..H-1 repeat for each edge
+    h_idx = torch.arange(multiHeads, device=sparse_values.device).repeat_interleave(num_edges).repeat(1)
+
+    # 3. Repeat the edge indices for each batch and head
+    # Destination nodes (i)
+    i_idx = cols.repeat(1 * multiHeads)
+    # Source nodes (j)
+    j_idx = rows.repeat(1 * multiHeads)
+
+    # 4. Stack them all together to create the final sparse indices
+    # Shape will be [4, B * H * num_edges]
+    sparse_indices = torch.stack([b_idx, h_idx, i_idx, j_idx], dim=0)
+
+    # Create the sparse tensor of raw scores
+    return torch.sparse_coo_tensor(
+        indices=sparse_indices,
+        values=sparse_values,
+        size=size
+    ), sparse_indices
+    
+    
 from typing import Union, Tuple
+def verbosePrint(message: str, verbose: bool, separator = False):
+    if verbose:
+        if separator:
+            print(f'===============================================================')
+        print(message)
+
+
 class TransformerLayer(torch.nn.Module):
-    def __init__(self, input_dim, transformer_features, edgeFeatureSize, multi_heads, 
-                 edge_bias = False, edge_gating = False,
-                 additive_bias = True, verbose = False,
-                 activation = 'celu', ffnHiddenLayers = 1, ffnHiddenSize = 0):
+    def __init__(self, input_dim, transformer_features, edgeFeatureSize, multi_heads,
+                 edge_bias=False, edge_gating=False,
+                 additive_bias=True, verbose=False,
+                 activation='celu', ffnHiddenLayers=1, ffnHiddenSize=0,
+                 attentionOp='dot', attentionOpIncludeEdge=False,
+                 sharedWeights=False, scaleQ=True):
         super(TransformerLayer, self).__init__()
-        if verbose:
-            print(f'Initializing TransformerLayer with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}')
+        
+        self.multiHeads = multi_heads
+        self.transformerFeatures = transformer_features
+        self.edgeFeatureSize = edgeFeatureSize
+        self.scaleQ = scaleQ
 
-        if verbose:
-            print(f'===============================================================')
-            print(f'Building linear projections for Q, K, V')
+        self.edgeBias = edge_bias
+        self.edgeGating = edge_gating
+        self.additiveBias = additive_bias
+        self.verbose = verbose
 
-        self.W_Q = torch.nn.Linear(input_dim, transformer_features * multi_heads, bias=False)
-        self.W_K = torch.nn.Linear(input_dim, transformer_features * multi_heads, bias=False)
-        self.W_V = torch.nn.Linear(input_dim, transformer_features * multi_heads, bias=False)
-        if verbose:
-            print(f'\tW_Q shape: {self.W_Q.weight.shape}, W_K shape: {self.W_K.weight.shape}, W_V shape: {self.W_V.weight.shape}')
+        self.attentionOp = attentionOp  # 'dot' or 'GAT' or 'MLP'
+        self.attentionOpIncludeEdge = attentionOpIncludeEdge
+        self.hiddenLayers = ffnHiddenLayers
+        self.ffnHiddenSize = ffnHiddenSize if ffnHiddenSize > 0 else input_dim * 4
+        
+        verbosePrint(f'Initializing TransformerLayer with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
+        verbosePrint(f'Building linear projections for Q, K, V', verbose, separator=True)
 
-        if verbose:
-            print(f'===============================================================')
-            print(f'Building edge bias and gating projections')
-        if edge_bias:
-            self.W_E = torch.nn.Linear(edgeFeatureSize, multi_heads).to(device)
-            if verbose:
-                print(f'\tUsing edge bias with W_E shape: {self.W_E.weight.shape}')
+        if not sharedWeights:
+            self.W_Q = torch.nn.Linear(input_dim, transformer_features * multi_heads, bias=False)
+            self.W_K = torch.nn.Linear(input_dim, transformer_features * multi_heads, bias=False)
+            self.W_V = torch.nn.Linear(input_dim, transformer_features * multi_heads, bias=False)
         else:
-            self.W_E = None
-            
+            self.W_Q = self.W_K = self.W_V = torch.nn.Linear(input_dim, transformer_features * multi_heads, bias=False)
+        verbosePrint(f'W_Q shape: {self.W_Q.weight.shape}, W_K shape: {self.W_K.weight.shape}, W_V shape: {self.W_V.weight.shape}', verbose)
+        
+        verbosePrint(f'Building edge bias and gating projections', verbose, separator=True)
+        if edge_bias:
+            self.W_E = torch.nn.Linear(edgeFeatureSize, multi_heads)
+            verbosePrint(f'\tUsing edge bias with W_E shape: {self.W_E.weight.shape}', verbose)
+        else:
+            self.W_E = None            
         # Edge gating is optional and can be used to gate the value matrix with edge features
         if edge_gating:
-            self.W_E_gate = torch.nn.Linear(edgeFeatureSize, multi_heads * transformer_features).to(device)
-            if verbose:
-                print(f'\tUsing edge gating with W_E_gate shape: {self.W_E_gate.weight.shape}')
+            self.W_E_gate = torch.nn.Linear(edgeFeatureSize, multi_heads * transformer_features)
+            verbosePrint(f'\tUsing edge gating with W_E_gate shape: {self.W_E_gate.weight.shape}', verbose)
         else:
             self.W_E_gate = None
 
-        if verbose:
-            print(f'===============================================================')
-            print(f'Building output projection steps')
+        verbosePrint(f'Building output projection steps', verbose, separator=True)
         self.activation = activation if isinstance(activation, torch.nn.Module) else getActivationLayer(activation)
         self.W_O = torch.nn.Linear(transformer_features * multi_heads, input_dim, bias=False)
         self.layer_norm1 = torch.nn.LayerNorm(input_dim)
         self.layer_norm2 = torch.nn.LayerNorm(input_dim)
-
-        if verbose:
-            print(f'\tW_O shape: {self.W_O.weight.shape}')
-
-        self.hiddenLayers = ffnHiddenLayers
-        self.ffnHiddenSize = ffnHiddenSize if ffnHiddenSize > 0 else input_dim * 4
-
-        if verbose:
-            print(f'===============================================================')
-            print(f'Building Feedforward Network (FFN) with {self.hiddenLayers} hidden layers and hidden size {self.ffnHiddenSize}')
-
-        # Build FFN with configurable number of hidden layers and hidden size
+        verbosePrint(f'W_O shape: {self.W_O.weight.shape}, layer_norm1 shape: {self.layer_norm1.weight.shape}, layer_norm2 shape: {self.layer_norm2.weight.shape}', verbose)
+        verbosePrint(f'Activation Function: {self.activation}', verbose)
+        
+        verbosePrint(f'Building Feedforward Network (FFN) with {self.hiddenLayers} hidden layers and hidden size {self.ffnHiddenSize}', verbose)        
         layers = []
         in_dim = input_dim
         for i in range(self.hiddenLayers):
@@ -63,434 +168,253 @@ class TransformerLayer(torch.nn.Module):
             in_dim = self.ffnHiddenSize
         layers.append(torch.nn.Linear(in_dim, input_dim))
         self.ffn = torch.nn.Sequential(*layers)
+        verbosePrint(f'FFN: {self.ffn}', verbose)
 
-        if verbose:
-            print(f'\tFFN: {self.ffn}')
-
-        self.multiHeads = multi_heads
-        self.transformerFeatures = transformer_features
-        self.edgeFeatureSize = edgeFeatureSize
-
-        self.edgeBias = edge_bias
-        self.edgeGating = edge_gating
-        self.additiveBias = additive_bias
-        self.verbose = verbose
+        verbosePrint(f'Building Attention Mechanism', verbose, separator=True)
         
+        inputSize = 2 * transformer_features
+        if self.attentionOpIncludeEdge:
+            inputSize += edgeFeatureSize  # Include edge features in GAT attention
 
-        if verbose:
-            print(f'===============================================================')
-            print(f'TransformerLayer initialized with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}')
+        if self.attentionOp == 'GAT':
+            verbosePrint(f'\tUsing GAT attention with input size: {inputSize}', verbose)
+            self.W_a = torch.nn.Linear(inputSize, 1, bias=False)
+            # The LeakyReLU activation, with the negative slope commonly used in GAT.
+            self.leaky_relu = nn.LeakyReLU(0.2)
+        elif self.attentionOp == 'MLP':
+            verbosePrint(f'\tUsing MLP attention with input size: {inputSize}', verbose)
+            hiddenSize = transformer_features * multi_heads
+            hiddenLayers = ffnHiddenLayers
+            layers = []
+            in_dim = inputSize
+            for i in range(hiddenLayers):
+                layers.append(torch.nn.Linear(in_dim, hiddenSize))
+                layers.append(self.activation)
+                in_dim = hiddenSize
+            layers.append(torch.nn.Linear(in_dim, inputSize))
+            self.W_a = torch.nn.Sequential(*layers)
+
+            # The LeakyReLU activation, with the negative slope commonly used in GAT.
+            self.leaky_relu = nn.LeakyReLU(0.2)
+        else:
+            verbosePrint(f'\tUsing dot attention', verbose)
+            self.W_a = None  # For 'dot' attention, no additional weights are needed
+
+        verbosePrint(f'TransformerLayer initialized with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
 
     def forward(self, inputTokens_: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], inputEdges, edgeIndices):
         if isinstance(inputTokens_, tuple):
             inputTokensCurrent, inputTokensNeighbor = inputTokens_
         else:
             inputTokensCurrent = inputTokensNeighbor = inputTokens_  # No row information if not provided
-        batch_size, num_nodes, latentSpaceSize = inputTokensCurrent.shape
-        # Multi-Head Attention with Edge Information
-        if self.verbose:
-            print(f'===============================================================')
-            print(f'Input tokens shape: {inputTokensCurrent.shape}')
-            if inputEdges is not None:
-                print(f'Input edges shape: {inputEdges.shape}')
-            else:
-                print('No edge features provided')
-
-            if edgeIndices is not None:
-                print(f'Edge indices shape: {edgeIndices.shape}')
-            else:
-                print('No edge indices provided')
-                raise ValueError('Edge indices must be provided for sparse neighborhoods')
+            verbosePrint(f'\tNo row information provided for input tokens', self.verbose)
             
+        batch_size, num_nodes_current, latentSpaceSize = inputTokensCurrent.shape
+        batch_size_edges = 1
+        num_nodes_neighbor = inputTokensNeighbor.shape[1]
+        num_edges = edgeIndices.shape[1]
         rows = edgeIndices[0]
         cols = edgeIndices[1]
+        
+        verbosePrint(f'Input tokens shape: {inputTokensCurrent.shape}', self.verbose, separator=True)
+        if inputEdges is not None:
+            verbosePrint(f'\tInput edges shape: {inputEdges.shape}', self.verbose)
+        else:
+            verbosePrint(f'\tNo edge features provided', self.verbose)
+        verbosePrint(f'Edge indices shape: {edgeIndices.shape}', self.verbose)
 
-        if self.verbose:
-            print(f'===============================================================')
+        # Preamble done, Projection into Query, Key, Value next
+
+        verbosePrint(f'Projection Step', self.verbose, separator=True)
 
         Q = self.W_Q(inputTokensCurrent)
         K = self.W_K(inputTokensNeighbor)
         V = self.W_V(inputTokensNeighbor)
 
+        verbosePrint(f'Input Token Shape [current ]: {inputTokensCurrent.shape} [B {batch_size} x N {num_nodes_current} x D {latentSpaceSize}]', self.verbose)
+        verbosePrint(f'Input Token Shape [neighbor]: {inputTokensNeighbor.shape} [B {batch_size} x N {num_nodes_neighbor} x D {latentSpaceSize}]', self.verbose)
+
         Q = Q.view(batch_size, Q.shape[1], self.multiHeads, self.transformerFeatures).permute(0, 2, 1, 3)
         K = K.view(batch_size, K.shape[1], self.multiHeads, self.transformerFeatures).permute(0, 2, 1, 3)
         V = V.view(batch_size, V.shape[1], self.multiHeads, self.transformerFeatures).permute(0, 2, 1, 3)
 
-        if self.verbose:
-            print('Q shape:', Q.shape)
-            print('K shape:', K.shape)
-            print('V shape:', V.shape)
+        verbosePrint(f'Query Shape: {Q.shape} [B {batch_size} x H {self.multiHeads} x N {Q.shape[2]} x D {self.transformerFeatures}]', self.verbose)
+        verbosePrint(f'Key Shape:   {K.shape} [B {batch_size} x H {self.multiHeads} x N {K.shape[2]} x D {self.transformerFeatures}]', self.verbose)
+        verbosePrint(f'Value Shape: {V.shape} [B {batch_size} x H {self.multiHeads} x N {V.shape[2]} x D {self.transformerFeatures}]', self.verbose)
 
-        # Scale Q by sqrt(d_k)
-        # This is a common practice in Transformer architectures to stabilize training
-        # and improve convergence.
-        # The scaling factor is the square root of the dimension of the key vectors (d_k).
-        # It helps to prevent the dot product from growing too large, which can lead to
-        # very small gradients and slow down training.
-        # This scaling is applied before the softmax operation in the attention mechanism.
-        # It ensures that the attention scores are not too large, which can lead to numerical instability.
-        # In this case, d_k is equal to transformerFeatures.
-        # Therefore, we scale Q by the square root of transformerFeatures.
-        Q = Q / (self.transformerFeatures ** 0.5)  # Scale by sqrt(d_k)
+        # Scale Q by sqrt(d_k) This is a common practice in Transformer architectures to stabilize training
+        if self.scaleQ:
+            Q = Q / (self.transformerFeatures ** 0.5)  # Scale by sqrt(d_k)
+            verbosePrint(f'\tScaled Query Shape Tokens by 1/{self.transformerFeatures} ** 0.5', self.verbose)
 
-        # if self.edgeBias:
-        # else:
-        # For a dense neighborhood we can run a matmul directly
-        attentionScores = torch.matmul(Q, K.transpose(-2, -1))
-        # Attention scores shape: [batch_size, multiHeads, num_nodes, num_nodes]
-        print(f'===============================================================')
-        print('attentionScores shape:', attentionScores.shape)
-        # For a sparse neighborhood we need to use the edge indices
-        if self.verbose:
-            print(f'===============================================================')
-            print('Using sparse neighborhood for attention scores')
+        # Q has shape [batch_size, multiHeads, num_nodes_current, transformerFeatures]
+        # K has shape [batch_size, multiHeads, num_nodes_neighbor, transformerFeatures]
+        # because of the sparse neighborhood we need to unify the batch size and num_nodes entries
+        # Q_i will then have shape [multiHeads, num_edges, transformerFeatures]
+        # K_j will have shape [multiHeads, num_edges, transformerFeatures]
+        # where num_edges is the number of edges in the sparse neighborhood
 
-        # Q has shape [batch_size, multiHeads, num_nodes, transformerFeatures]
-        # K has shape [batch_size, multiHeads, num_nodes, transformerFeatures]
-        # We need to compute the attention scores using the edge indices
-        # This is done by selecting the rows and columns from Q and K based on edgeIndices
-        # rows and cols are the indices of the edges in the sparse neighborhood
-        # However, the edgeIndices are for the flattened versions of Q and K
-        Q_flat = Q.permute(0, 2, 1, 3).reshape(batch_size * num_nodes, self.multiHeads, self.transformerFeatures)
-        K_flat = K.permute(0, 2, 1, 3).reshape(batch_size * num_nodes, self.multiHeads, self.transformerFeatures)
-        # Q_flat = Q.reshape(batch_size * self.multiHeads, num_nodes, self.transformerFeatures)
-        # K_flat = K.reshape(batch_size * self.multiHeads, num_nodes, self.transformerFeatures)
-        if self.verbose:
-            print(f'Q_flat shape: {Q_flat.shape}, K_flat shape: {K_flat.shape}')
-            print(f'Rows: {rows}, Cols: {cols}')
+        # Q_unified will have shape [multiHeads, batch_size * num_nodes_current, transformerFeatures]
+        # K_unified will have shape [multiHeads, batch_size * num_nodes_neighbor, transformerFeatures]
+        Q_unified = Q.permute(1, 0, 2, 3).reshape(self.multiHeads, batch_size * num_nodes_current, self.transformerFeatures)
+        K_unified = K.permute(1, 0, 2, 3).reshape(self.multiHeads, batch_size * num_nodes_neighbor, self.transformerFeatures)
 
-        # Now we can index the query matrices using the rows and the key matrices using the cols
-        # This will give us the correct rows and columns for the attention scores
-        if self.verbose:
-            print(f'Edge indices: {edgeIndices}')
-            print(f'Rows: {rows}, Cols: {cols}')
+        verbosePrint(f'Unified Query Shape: {Q_unified.shape} [H {self.multiHeads} x B {batch_size} * N {num_nodes_current} x D {self.transformerFeatures}]', self.verbose, separator=True)
+        verbosePrint(f'Unified Key Shape:   {K_unified.shape} [H {self.multiHeads} x B {batch_size} * N {num_nodes_neighbor} x D {self.transformerFeatures}]', self.verbose)
 
-        # Gather the vectors for each edge
-        # Q_i are the queries for the destination nodes of each edge
-        # K_j are the keys for the source nodes of each edge
-        Q_i = Q[:, :, cols, :] # Shape: [B, H, num_edges, F]
-        K_j = K[:, :, rows, :] # Shape: [B, H, num_edges, F]
+        Q_i = Q_unified[:, rows, :] # Shape: [B, H, num_edges, F]
+        K_j = K_unified[:, cols, :] # Shape: [B, H, num_edges, F]
 
+        verbosePrint(f'Collected Query Tokens: {Q_i.shape} [H {self.multiHeads} x E {num_edges} x F {self.transformerFeatures}]', self.verbose)
+        verbosePrint(f'Collected Key Tokens:   {K_j.shape} [H {self.multiHeads} x E {num_edges} x F {self.transformerFeatures}]', self.verbose)
 
-        # Q_i_dense = Q_i.view(batch_size, self.multiHeads, num_nodes, num_nodes, self.transformerFeatures)
-        # K_j_dense = K_j.view(batch_size, self.multiHeads, num_nodes, num_nodes, self.transformerFeatures)
+        verbosePrint(f'Computing Attention', self.verbose)
 
-        # print(f'Q_i_dense shape: {Q_i_dense.shape}, K_j_dense shape: {K_j_dense.shape}')
-        # print(f'Q_i shape: {Q_i.shape}, K_j shape: {K_j.shape}')
+        # Normal dot product attention scores
+        if self.attentionOp == 'dot':
+            verbosePrint(f'\tUsing dot product attention scores', self.verbose)
+            sparseAttentionValues = (Q_i * K_j).sum(dim=-1)
+        elif self.attentionOp == 'GAT':
+            verbosePrint(f'\tUsing GAT attention scores', self.verbose)
+            # GAT attention scores: W_a(Q_i || K_j)
+            # Concatenate Q_i and K_j along the last dimension
+            if not self.attentionOpIncludeEdge:
+                verbosePrint(f'\t\tConcatenating Q_i and K_j without edge features', self.verbose)
+                combined = torch.cat([Q_i, K_j], dim=-1)  # Shape: [B, H, num_edges, 2*F]
+            else:
+                verbosePrint(f'\t\tConcatenating Q_i and K_j with edge features', self.verbose)
+                # input edges has shape [num_edges, edgeFeatureSize]
+                # We need to expand it to match the batch size and multi-heads
+                
+                expanded_inputEdges = inputEdges.view(batch_size_edges, 1, Q_i.shape[2], -1).expand(batch_size_edges, self.multiHeads, -1, -1)  # Shape: [B, H, edgeFeatureSize]
+                verbosePrint(f'\t\tExpanded input edges [accounting for H]: {expanded_inputEdges.shape} [1 x H {self.multiHeads} x E {num_edges} x FE {self.edgeFeatureSize}]', self.verbose)
+                combined = torch.cat([Q_i, K_j, expanded_inputEdges], dim=-1)  # Shape: [B, H, num_edges, 2*F + edgeFeatureSize]
+            verbosePrint(f'\tCombined shape for attention scores: {combined.shape} [1 {batch_size_edges} x H {self.multiHeads} x E {num_edges} x (2*F + ?FE)]', self.verbose)
 
-        # if torch.any(torch.logical_not(torch.isclose(Q_i_dense, Q))) or torch.any(torch.logical_not(torch.isclose(K_j_dense, K))):
-        #     print('Q_i or K_j mismatch with Q or K!')
-        #     print('Q_i:', Q_i_dense)
-        #     print('Q:', Q)
-        #     print('K_j:', K_j_dense)
-        #     print('K:', K)
-        #     raise ValueError('Q_i or K_j mismatch with Q or K!')
+            verbosePrint(f'\tProjecting attention scores', self.verbose)
+            sparseAttentionValues = self.W_a(combined)  # Shape: [B, H, num_edges, 1]
+            sparseAttentionValues = self.leaky_relu(sparseAttentionValues).squeeze(-1)  # Shape: [B, H, num_edges]
+            
+        elif self.attentionOp == 'MLP':
+            verbosePrint(f'\tUsing MLP attention scores', self.verbose)
+            if not self.attentionOpIncludeEdge:
+                combined = torch.cat([Q_i, K_j], dim=-1)  # Shape: [B, H, num_edges, 2*F]
+            else:
+                verbosePrint(f'\t\tExpanded input edges [accounting for H]: {expanded_inputEdges.shape} [1 x H {self.multiHeads} x E {num_edges} x FE {self.edgeFeatureSize}]', self.verbose)
+                expanded_inputEdges = inputEdges.view(batch_size_edges, 1, Q_i.shape[2], -1).expand(batch_size_edges, self.multiHeads, -1, -1)  # Shape: [B, H, edgeFeatureSize]
+                combined = torch.cat([Q_i, K_j, expanded_inputEdges], dim=-1)  # Shape: [B, H, num_edges, 2*F + edgeFeatureSize]
 
-        if self.verbose:
-            print(f'Q_i shape: {Q_i.shape}, K_j shape: {K_j.shape}')
-            print(f'Rows: {rows.shape}, Cols: {cols.shape}')
+            verbosePrint(f'\tCombined shape for attention scores: {combined.shape} [1 {batch_size_edges} x H {self.multiHeads} x E {num_edges} x (2*F + ?FE)]', self.verbose)                
+            sparseAttentionValues = self.W_a(combined).squeeze(-1)  # Shape: [B, H, num_edges]
+            sparseAttentionValues = self.leaky_relu(sparseAttentionValues)  # Apply activation
+        else:
+            raise ValueError(f'Unknown attention operation: {self.attentionOp}')
 
-        if self.verbose:
-            print(f'Edge indices shape: {edgeIndices.shape}')
-            print(f'Rows: {rows}, Cols: {cols}')
+        verbosePrint(f'Final sparse attention values shape: {sparseAttentionValues.shape} [1 {batch_size_edges} x H {self.multiHeads} x E {num_edges}]', self.verbose)
 
-        # sparseAttentionValues = torch.einsum('hij,hki->hi', Q_i, K_j.transpose(-2, -1))
-        sparseAttentionValues = (Q_i * K_j).sum(dim=-1) # / (self.transformerFeatures**0.5)
         sparse_values = sparseAttentionValues.flatten()
-        size = (batch_size, self.multiHeads, num_nodes, num_nodes)
-
-
-        # print(f'sparseAttentionValues shape: {sparseAttentionValues.shape}')
-        
-        # denseAttentionValues = sparseAttentionValues.view(batch_size, self.multiHeads, num_nodes, num_nodes)
-        # if torch.any(torch.logical_not(torch.isclose(denseAttentionValues, attentionScores))):
-        #     print('Attention scores mismatch! ')
-        #     print('denseAttentionValues:', denseAttentionValues)
-        #     print('attentionScores:', attentionScores)
-        #     raise ValueError('Attention scores mismatch! ')
-        num_edges = edgeIndices.shape[1]
-
-        # 1. Create indices for the batch dimension (b)
-        # Each of the H*num_edges scores in a batch item gets the same batch index
-        b_idx = torch.arange(batch_size, device=Q.device).repeat_interleave(self.multiHeads * num_edges)
-
-        # 2. Create indices for the head dimension (h)
-        # Within each batch item, the indices 0..H-1 repeat for each edge
-        h_idx = torch.arange(self.multiHeads, device=Q.device).repeat_interleave(num_edges).repeat(batch_size)
-
-        # 3. Repeat the edge indices for each batch and head
-        # Destination nodes (i)
-        i_idx = cols.repeat(batch_size * self.multiHeads)
-        # Source nodes (j)
-        j_idx = rows.repeat(batch_size * self.multiHeads)
-
-        # 4. Stack them all together to create the final sparse indices
-        # Shape will be [4, B * H * num_edges]
-        sparse_indices = torch.stack([b_idx, h_idx, i_idx, j_idx], dim=0)
+        size = (batch_size_edges, self.multiHeads, num_nodes_current * batch_size, num_nodes_neighbor * batch_size)
+        verbosePrint(f'Sparse Attention Dense Shape: {size} [1 x H {self.multiHeads} x N_c {num_nodes_current * batch_size} x N_n {num_nodes_neighbor * batch_size}]', self.verbose)
 
         if self.edgeBias:
-            if self.verbose:
-                print(f'===============================================================')
-                print('Using edge bias for attention scores')
-            edge_bias = self.W_E(inputEdges).reshape(1, nx**2, nx**2, self.multiHeads) # shape: [batch, num_nodes, num_nodes, multiHeads]
+            verbosePrint(f'\tUsing edge bias for attention scores', self.verbose, separator=True)
+            verbosePrint(f'\tProjecting edge bias', self.verbose)
+            edge_bias = self.W_E(inputEdges).reshape(1, num_edges, self.multiHeads) # shape: [batch, num_edges, multiHeads]
+            verbosePrint(f'\tEdge bias shape: {edge_bias.shape} [1 x E {num_edges} x H {self.multiHeads}]', self.verbose)
             # print('edge_bias shape:', edge_bias.shape)
             # We need to align the dimensions for broadcasting with attention scores
-            edge_bias = edge_bias.permute(0, 3, 1, 2) # shape: [batch, multiHeads, num_nodes, num_nodes]
-
-            if self.verbose:
-                print(f'Edge bias shape after permute: {edge_bias.shape}')
-                print(f'Attention scores shape before edge bias: {Q.shape} x {K.transpose(-2, -1).shape}')
+            edge_bias = edge_bias.permute(0, 2, 1) # shape: [batch, multiHeads, num_edges]
+            
+            verbosePrint(f'\tEdge bias shape after permute: {edge_bias.shape}', self.verbose)
 
             # Compute Edge-aware Attention Scores
             if self.additiveBias:
+                verbosePrint(f'\t\tAdding edge bias to sparse values', self.verbose)
                 sparse_values = sparse_values + edge_bias.flatten()
             else:
+                verbosePrint(f'\t\tMultiplying sparse values with edge bias', self.verbose)
                 sparse_values = sparse_values * edge_bias.flatten()
 
-        # Create the sparse tensor of raw scores
-        attentionScoresSparse = torch.sparse_coo_tensor(
-            indices=sparse_indices,
-            values=sparse_values,
-            size=size
-        )
+        verbosePrint(f'Creating torch sparse COO Tensor for attention scores', self.verbose, separator=True)
+        attentionScoresSparse, sparse_indices = buildSparseTensor(rows, cols, sparse_values, size)
 
-        if self.edgeBias:
-            if self.verbose:
-                print(f'===============================================================')
-                print('Using edge bias for attention scores')
-            edge_bias = self.W_E(inputEdges).reshape(1, nx**2, nx**2, self.multiHeads) # shape: [batch, num_nodes, num_nodes, multiHeads]
-            # print('edge_bias shape:', edge_bias.shape)
-            # We need to align the dimensions for broadcasting with attention scores
-            edge_bias = edge_bias.permute(0, 3, 2, 1) # shape: [batch, multiHeads, num_nodes, num_nodes]
-
-            if self.verbose:
-                print(f'Edge bias shape after permute: {edge_bias.shape}')
-                print(f'Attention scores shape before edge bias: {Q.shape} x {K.transpose(-2, -1).shape}')
-
-            # Compute Edge-aware Attention Scores
-            if self.additiveBias:
-                attentionScores = attentionScores + edge_bias          
-
-            else:
-                attentionScores = attentionScores * edge_bias
-
-
-        # attentionScoresSparse = torch.sparse_coo_tensor(
-        #     indices=torch.stack([rows, cols]),
-        #     values=sparseAttentionValues.flatten(),
-        #     size=(batch_size, self.multiHeads, num_nodes, num_nodes)
-        # )
-        print(f'Attention scores sparse shape: {attentionScoresSparse.shape}')
-        # attentionScores = attentionScoresSparse.to_dense().view(batch_size, self.multiHeads, num_nodes, num_nodes)
-
-        if self.verbose:
-            print('attentionScores shape:', attentionScores.shape)
-        attention_weights_sparse = torch.sparse.softmax(attentionScoresSparse, dim=2)
-        attentionScores = torch.nn.functional.softmax(attentionScores, dim=-1)
-
-        print(f'Attention scores shape after softmax: {attentionScores.shape}')
-        print(f'Attention weights sparse shape: {attention_weights_sparse.shape}')
-    
-        if torch.any(torch.logical_not(torch.isclose(attentionScores, attention_weights_sparse.to_dense()))):
-            print('Attention scores mismatch with sparse weights!')
-            print('attentionScores:', attentionScores)
-            print('attention_weights_sparse:', attention_weights_sparse.to_dense())
-            raise ValueError('Attention scores mismatch with sparse weights!')
+        verbosePrint(f'Attention scores sparse shape: {attentionScoresSparse.shape} [ {attentionScoresSparse._nnz()} non-zero entries   ]', self.verbose)
+        verbosePrint(f'Applying softmax (manual implementation)', self.verbose)
+        normalized_weights_ = softmax(attentionScoresSparse, sparse_values, rows, cols, sparse_indices)
+        normalized_weights = normalized_weights_.view(batch_size_edges, self.multiHeads, num_edges)
         
+        verbosePrint(f'Normalized weights shape: {normalized_weights.shape} [1 x H {self.multiHeads} x E {num_edges}]', self.verbose)
+        verbosePrint(f'Collecting Value Tokens', self.verbose, separator=True)
 
-        if self.verbose:
-            print(f'===============================================================')
-            print('attentionScores shape after softmax:', attentionScores.shape)
-        if self.edgeGating:
-            if self.verbose:
-                print(f'===============================================================')
-                print('Using edge gating for value matrix')
-            # ==============================================================================
-            # --- NEW: Gating the Value matrix with Edge Features ---
-            # 1. Create a new linear projection for the edge gates
-            # The output must match the feature dimension of V
+        V_unified = V.permute(1, 0, 2, 3).reshape(self.multiHeads, batch_size * num_nodes_neighbor, self.transformerFeatures)
+        verbosePrint(f'V_unified shape: {V_unified.shape} [H {self.multiHeads} x B * N {batch_size * num_nodes_neighbor} x F {self.transformerFeatures}]', self.verbose)
 
-            # 2. Project edge features and apply sigmoid
-            # dense_mod_xij shape: [B, N, N, edgeFeatureSize]
-            edge_gate = self.W_E_gate(inputEdges) # Shape: [B, N, N, H*F]
-            edge_gate = torch.sigmoid(edge_gate)
-            if self.verbose:
-                print(f'Edge gate shape after projection and sigmoid: {edge_gate.shape}')
+        V_j = V_unified[:, cols, :] # Shape: [B, H, num_edges, F]
+        verbosePrint(f'Collected Value Tokens: {V_j.shape} [H {self.multiHeads} x E {num_edges} x F {self.transformerFeatures}]', self.verbose)
 
-            # 3. Reshape the gate to match the multi-head structure for broadcasting
-            # New shape: [B, N (query), N (key), H, F] -> [B, H, N (query), N (key), F]
-            edge_gate = edge_gate.view(batch_size, num_nodes, num_nodes, multiHeads, transformerFeatures)
-            edge_gate = edge_gate.permute(0, 3, 1, 2, 4)
-            if self.verbose:
-                print(f'Edge gate shape after reshape and permute: {edge_gate.shape}')
-
-            # 4. Prepare V for gating. We need to align it with the [query, key] structure of the gate
-            # V shape is [B, H, N (key), F]. We unsqueeze to add a "query" dimension for broadcasting
-            V_expanded = V.unsqueeze(2) # Shape: [B, H, 1, N (key), F]
-
-            # 5. Apply the gate. Broadcasting rules will make this work.
-            # V_expanded is broadcast across the "query" dimension (dim 2)
-            # edge_gate is broadcast across the "value feature" dimension (dim 4)
-            V_gated = V_expanded * edge_gate # Shape: [B, H, N (query), N (key), F]
-            # print(f'V_gated after gating: {V_gated}')
-            if self.verbose:
-                print(f'V_gated shape after gating: {V_gated.shape}')
-
-            # 6. Compute the final output using the gated values
-            # The matmul is now between attentionScores [B,H,N,N] and a gated V
-            # We need to sum over the "key" dimension. This is no longer a simple matmul.
-            # We can do it with einsum for clarity or broadcasting + sum.
-            # attentionScores needs an extra dimension: [B, H, N (query), N (key), 1]
-            # Then multiply and sum over the key dimension (dim=3)
-            attentionOutput = (attentionScores.unsqueeze(-1) * V_gated).sum(dim=3)
-            # Final shape of attentionOutput: [B, H, N (query), F]
-            # ==============================================================================
-
-            # --- Reshape back (this part is now different) ---
-            # Previous shape was [B, H, N, F]. Now it's [B, H, N (query), F], which is the same.
-            attentionOutput = attentionOutput.permute(0, 2, 1, 3).contiguous().view(batch_size, num_nodes, -1)
-                
-        else:
-        # ==============================================================================
-        # --- Original Attention Output without Edge Gating ---
-        # 1. Compute Edge-aware Attention Output
-        # attentionOutput = torch.matmul(attentionScores, V)
-        # attentionOutput = attentionOutput.permute(0, 2, 1, 3).contiguous().view(batch_size, num_nodes, -1)
-        # ==============================================================================
-            attentionOutput = torch.matmul(attentionScores, V)
-            attentionOutput = attentionOutput.permute(0, 2, 1, 3).contiguous().view(batch_size, num_nodes, -1)
-
-
-        # Get the normalized weights from the sparse tensor
-        normalized_weights = attention_weights_sparse.values() # Shape: [B * H * num_edges]
-        normalized_weights = normalized_weights.view(batch_size, self.multiHeads, num_edges)
-
-        V_j = V[:, :, rows, :] # Shape: [B, H, num_edges, F]
-
+        verbosePrint(f'Computing Messages', self.verbose, separator=True)
         messages = V_j  # This is the message vector for each edge
-
-        # Weight the V_j vectors with the normalized attention
-        # Add a dimension for broadcasting: weights shape -> [B, H, num_edges, 1]
         if self.edgeGating:
-            if self.verbose:
-                print(f'===============================================================')
-                print('Using edge gating for messages')
-            # 3. Project edge features to create the gate
+            verbosePrint(f'\tUsing edge gating for messages', self.verbose)
+            # Project edge features to create the gate
             # W_E_gate is a nn.Linear(edge_feature_dim, self.multiHeads * self.transformerFeatures)
-            edge_gate_values = self.W_E_gate(inputEdges) # Shape: [num_edges, H*F]
+            verbosePrint(f'\tProjecting edge features for gating', self.verbose)
+            edge_gate_values = self.W_E_gate(inputEdges) 
             edge_gate_values = torch.sigmoid(edge_gate_values)
+            verbosePrint(f'\tEdge gate values shape: {edge_gate_values.shape} [num_edges {num_edges} x H {self.multiHeads} x F {self.transformerFeatures}]', self.verbose)
 
-            # 4. Reshape gate to be compatible with V_j for broadcasting
-            # Goal shape: [1, H, num_edges, F]
-            edge_gate_values = edge_gate_values.view(
-                num_edges, self.multiHeads, self.transformerFeatures
-            ) # Shape: [num_edges, H, F]
-            edge_gate_values = edge_gate_values.permute(1, 0, 2).unsqueeze(0) # Shape: [1, H, num_edges, F]
+            # Reshape gate to be compatible with V_j for broadcasting
+            edge_gate_values = edge_gate_values.view(num_edges, self.multiHeads, self.transformerFeatures)
+            edge_gate_values = edge_gate_values.permute(1, 0, 2).unsqueeze(0) 
+            verbosePrint(f'\tReshaped edge gate values shape: {edge_gate_values.shape}', self.verbose)
 
-            if self.verbose:
-                print(f"Shape of V_j to be gated: {V_j.shape}")
-                print(f"Shape of sparse edge gate: {edge_gate_values.shape}")
-
-            # 5. Apply the gate to the V_j vectors. Broadcasting handles the batch dim.
+            verbosePrint(f"\tShape of V_j to be gated: {V_j.shape}", self.verbose)
+            
+            # Apply the gate to the V_j vectors. Broadcasting handles the batch dim.
             gated_V_j = V_j * edge_gate_values
-
-            gated_V_j_dense = gated_V_j.view(batch_size, self.multiHeads, num_nodes, num_nodes, self.transformerFeatures)
-            print(f'Gated V_j dense shape: {gated_V_j_dense.shape} | V_gated shape: {V_gated.shape}')
-
-            if torch.any(torch.logical_not(torch.isclose(gated_V_j_dense, V_gated))):
-                print('Gated V_j mismatch with V!')
-                print('gated_V_j:', gated_V_j_dense)
-                print('V:', V_gated)
-                raise ValueError('Gated V_j mismatch with V!')
-
             messages = gated_V_j # Update messages to be the gated version
 
-
+        verbosePrint(f'Final messages shape: {messages.shape} [H {self.multiHeads} x E {num_edges} x F {self.transformerFeatures}]', self.verbose)
+        verbosePrint(f'Attention Shape: {normalized_weights.shape} [1 x H {self.multiHeads} x E {num_edges}]', self.verbose)
         final_messages = messages * normalized_weights.unsqueeze(-1)
-
-        # 4. Prepare the components for the hybrid sparse tensor
-        # We can reuse the indices from our attention score calculation
-        # sparse_indices has shape [4, B * H * num_edges] and maps to [b, h, i, j]
-        #
-        # The values are now the message vectors. We need to reshape them to match the indices.
-        # Shape: [B, H, num_edges, F] -> [B * H * num_edges, F]
         message_values = final_messages.reshape(-1, self.transformerFeatures)
+        verbosePrint(f'Message values shape: {message_values.shape} [B * H * E {batch_size_edges * self.multiHeads * num_edges} x F {self.transformerFeatures}]', self.verbose)
 
+        verbosePrint(f'Summing Messages Step', self.verbose, separator=True)
+        
         # The full size of the hybrid tensor: sparse part + dense part
-        hybrid_size = (
-            batch_size,
-            self.multiHeads,
-            num_nodes,
-            num_nodes,
-            self.transformerFeatures # The dense dimension
-        )
+        hybrid_size = (batch_size_edges, self.multiHeads, num_nodes_current * batch_size, num_nodes_neighbor * batch_size, self.transformerFeatures)
+        # Create the hybrid sparse tensor representing messages
+        sparse_message_tensor = torch.sparse_coo_tensor(indices=sparse_indices, values=message_values, size=hybrid_size)
+        verbosePrint(f'Sparse message tensor shape: {sparse_message_tensor.shape} [1 x H {self.multiHeads} x N_curr {num_nodes_current * batch_size} x N_neigh {num_nodes_neighbor * batch_size} x F {self.transformerFeatures}]', self.verbose)
 
-        # 5. Create the hybrid sparse tensor representing messages
-        sparse_message_tensor = torch.sparse_coo_tensor(
-            indices=attention_weights_sparse.indices(), # Reuse the indices
-            values=message_values,
-            size=hybrid_size
-        )
-
-        # 6. Sum over the source dimension 'j' (dim=3) to aggregate messages
-        # This collapses the j-th dimension, summing all messages for each (b, h, i)
+        # Sum over the source dimension 'j' (dim=3) to aggregate messages
         aggregated_messages_sparse = torch.sparse.sum(sparse_message_tensor, dim=3)
-
-        # 7. Convert the result back to a dense tensor
-        # The result has aggregated messages for each node.
-        # Shape: [B, H, N, F]
+        verbosePrint(f'Aggregated messages shape: {aggregated_messages_sparse.shape} [1 x H {self.multiHeads} x N_curr {num_nodes_current * batch_size} x F {self.transformerFeatures}]', self.verbose)
         dense_output = aggregated_messages_sparse.to_dense()
+        verbosePrint(f'Dense output shape: {dense_output.shape} [B {batch_size * num_nodes_current} x H {self.multiHeads} x F {self.transformerFeatures}]', self.verbose)
+        attentionOutputSparse = dense_output.permute(0, 2, 1, 3).reshape(num_nodes_current, batch_size, -1).transpose(0, 1)
+        verbosePrint(f'Attention output sparse shape: {attentionOutputSparse.shape} [B {batch_size} x N {num_nodes_current} x H*F {self.multiHeads * self.transformerFeatures}]', self.verbose)
 
-        # ==============================================================================
-
-        # 8. Reshape for the final layers
-        # Shape: [B, H, N, F] -> [B, N, H*F]
-        attentionOutputSparse = dense_output.permute(0, 2, 1, 3).reshape(
-            batch_size, num_nodes, -1
-        )
-
-        print('Attention attentionOutputSparse.shape:', attentionOutputSparse.shape)
-
-        if torch.any(torch.logical_not(torch.isclose(attentionOutputSparse, attentionOutput))):
-            print('Attention output mismatch! ')
-            print('attentionOutputSparse:', attentionOutputSparse)
-            print('attentionOutput:', attentionOutput)
-            raise ValueError('Attention output mismatch! ')
-
-        if self.verbose:
-            print('attentionOutput shape:', attentionOutput.shape)
-
-        # ==============================================================================
-        # --- Original Transformer Output ---
-
+        verbosePrint(f'Projecting attention output back to latent space', self.verbose, separator=True)
         # Project back to latent space
+        
         attentionOutput = self.W_O(attentionOutputSparse)
-        if self.verbose:
-            print(f'===============================================================')
-            print('attentionOutput shape after projection:', attentionOutput.shape)
-
+        verbosePrint(f'Attention output shape after projection: {attentionOutput.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
         # Residual Connection and Layer Norm (Post-Attention)
+        verbosePrint(f'Applying residual connection: {inputTokensCurrent.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
         attentionOutput = inputTokensCurrent + attentionOutput  # Residual connection
+        verbosePrint(f'Running Layer Norm', self.verbose)
         attentionOutput = self.layer_norm1(attentionOutput)
 
-        if self.verbose:
-            print(f'===============================================================')
-            print('attentionOutput shape after residual connection and layer norm:', attentionOutput.shape)
-
-        # Feedforward Network
-        if self.verbose:
-            print(f'===============================================================')
-            print('Applying Feedforward Network (FFN)')
+        verbosePrint(f'Applying Feedforward Network (FFN)', self.verbose)
         ffnOutput = self.ffn(attentionOutput)
-        if self.verbose:
-            print(f'FFN output shape: {ffnOutput.shape}')
+        verbosePrint(f'FFN output shape: {ffnOutput.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
 
         # Residual Connection and Layer Norm (Post-FFN)
         transformerOutput = attentionOutput + ffnOutput  # Residual connection
         transformerOutput = self.layer_norm2(transformerOutput)
-        if self.verbose:
-            print(f'===============================================================')
-            print('Final transformerOutput shape after residual connection and layer norm:', transformerOutput.shape)
+        verbosePrint(f'Final transformerOutput shape after residual connection and layer norm: {transformerOutput.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
 
-        return transformerOutput        
+        return transformerOutput
 

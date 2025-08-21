@@ -113,3 +113,75 @@ def plotDistribution(fig, axis, particleState, neighborhood, logNorm = True, nnx
     axis.set_aspect('equal')
     axis.set_title('Neighbor Distribution')
     return sc, cbar
+
+
+from diffSPH.neighborhood import computeSparseDistanceTensor, SparseNeighborhood
+
+def buildDenseNeighborhood(particleState, domain):
+    batch_ids = torch.unique(particleState.batches) if particleState.batches is not None else None
+    if batch_ids is not None:
+        print(f'Building dense neighborhood for batches: {batch_ids}')
+        cumulativeParticles = 0
+        rowIndices = []
+        colIndices = []
+        for batch_id in batch_ids:
+            batch_mask = particleState.batches == batch_id
+            numPtcls = particleState.positions[batch_mask].shape[0]
+            indices = torch.arange(numPtcls).reshape(-1, numPtcls).repeat(numPtcls, 1).to(device)
+            rowIndices.append(indices.t().reshape(-1) + cumulativeParticles)
+            colIndices.append(indices.reshape(-1) + cumulativeParticles)
+
+            cumulativeParticles += numPtcls
+
+        rowIndices = torch.cat(rowIndices)
+        colIndices = torch.cat(colIndices)
+
+        denseNeighborhood = SparseNeighborhood(
+            row = rowIndices,
+            col = colIndices,
+            numRows = cumulativeParticles,
+            numCols = cumulativeParticles,
+            
+            points_a = PointCloud(
+                positions = particleState.positions[batch_mask],
+                supports = particleState.supports[batch_mask],
+            ),
+            points_b = PointCloud(
+                positions = particleState.positions[batch_mask],
+                supports = particleState.supports[batch_mask],
+            ),
+            
+            domain = domain,
+        )
+
+        return denseNeighborhood
+
+    else:
+        numPtcls = particleState.positions.shape[0]
+        indices = torch.arange(numPtcls).reshape(-1, numPtcls).repeat(numPtcls, 1).to(device)
+        rowIndices = indices.t().reshape(-1)
+        colIndices = indices.reshape(-1)
+
+        denseNeighborhood = SparseNeighborhood(
+            row = rowIndices,
+            col = colIndices,
+            numRows = nx**2,
+            numCols = nx**2,
+            
+            points_a = PointCloud(
+                positions = particleState.positions,
+                supports = particleState.supports,
+            ),
+            points_b = PointCloud(
+                positions = particleState.positions,
+                supports = particleState.supports,
+            ),
+            
+            domain = domain,
+        )
+
+        return denseNeighborhood
+
+def buildSparseNeighborhood(particleState, neighbors):
+    filteredNeighborhood = filterNeighborhoodByKind(particleState, neighbors.neighbors, 'noghost')
+    return filteredNeighborhood
