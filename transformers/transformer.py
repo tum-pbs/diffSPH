@@ -109,7 +109,9 @@ class TransformerLayer(torch.nn.Module):
                  additive_bias=True, verbose=False,
                  activation='celu', ffnHiddenLayers=1, ffnHiddenSize=0,
                  attentionOp='dot', attentionOpIncludeEdge=False,
-                 sharedWeights=False, scaleQ=True):
+                 sharedWeights=False, scaleQ=True,
+                 dropoutActive=False, dropoutRate = 0.1, 
+                 headAggregation='concat', clipAttention=True):
         super(TransformerLayer, self).__init__()
         
         self.multiHeads = multi_heads
@@ -126,7 +128,11 @@ class TransformerLayer(torch.nn.Module):
         self.attentionOpIncludeEdge = attentionOpIncludeEdge
         self.hiddenLayers = ffnHiddenLayers
         self.ffnHiddenSize = ffnHiddenSize if ffnHiddenSize > 0 else input_dim * 4
-        
+        self.useDropout = dropoutActive
+        self.dropoutRate = dropoutRate
+        self.clipAttention = clipAttention
+        self.multiHeadAggregation = headAggregation
+
         verbosePrint(f'Initializing TransformerLayer with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
         verbosePrint(f'Building linear projections for Q, K, V', verbose, separator=True)
 
@@ -153,7 +159,10 @@ class TransformerLayer(torch.nn.Module):
 
         verbosePrint(f'Building output projection steps', verbose, separator=True)
         self.activation = activation if isinstance(activation, torch.nn.Module) else getActivationLayer(activation)
-        self.W_O = torch.nn.Linear(transformer_features * multi_heads, input_dim, bias=False)
+        if self.multiHeadAggregation == 'mean':
+            self.W_O = torch.nn.Linear(transformer_features, input_dim, bias=False)        
+        else:
+            self.W_O = torch.nn.Linear(transformer_features * multi_heads, input_dim, bias=False)
         self.layer_norm1 = torch.nn.LayerNorm(input_dim)
         self.layer_norm2 = torch.nn.LayerNorm(input_dim)
         verbosePrint(f'W_O shape: {self.W_O.weight.shape}, layer_norm1 shape: {self.layer_norm1.weight.shape}, layer_norm2 shape: {self.layer_norm2.weight.shape}', verbose)
@@ -199,6 +208,10 @@ class TransformerLayer(torch.nn.Module):
         else:
             verbosePrint(f'\tUsing dot attention', verbose)
             self.W_a = None  # For 'dot' attention, no additional weights are needed
+            
+        if self.useDropout:
+            self.dropout = torch.nn.Dropout(self.dropoutRate)
+            self.attention_dropout = torch.nn.Dropout(self.dropoutRate)
 
         verbosePrint(f'TransformerLayer initialized with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
 
@@ -300,8 +313,8 @@ class TransformerLayer(torch.nn.Module):
             if not self.attentionOpIncludeEdge:
                 combined = torch.cat([Q_i, K_j], dim=-1)  # Shape: [B, H, num_edges, 2*F]
             else:
-                verbosePrint(f'\t\tExpanded input edges [accounting for H]: {expanded_inputEdges.shape} [1 x H {self.multiHeads} x E {num_edges} x FE {self.edgeFeatureSize}]', self.verbose)
                 expanded_inputEdges = inputEdges.view(batch_size_edges, 1, Q_i.shape[2], -1).expand(batch_size_edges, self.multiHeads, -1, -1)  # Shape: [B, H, edgeFeatureSize]
+                verbosePrint(f'\t\tExpanded input edges [accounting for H]: {expanded_inputEdges.shape} [1 x H {self.multiHeads} x E {num_edges} x FE {self.edgeFeatureSize}]', self.verbose)
                 combined = torch.cat([Q_i, K_j, expanded_inputEdges], dim=-1)  # Shape: [B, H, num_edges, 2*F + edgeFeatureSize]
 
             verbosePrint(f'\tCombined shape for attention scores: {combined.shape} [1 {batch_size_edges} x H {self.multiHeads} x E {num_edges} x (2*F + ?FE)]', self.verbose)                
@@ -313,6 +326,8 @@ class TransformerLayer(torch.nn.Module):
         verbosePrint(f'Final sparse attention values shape: {sparseAttentionValues.shape} [1 {batch_size_edges} x H {self.multiHeads} x E {num_edges}]', self.verbose)
 
         sparse_values = sparseAttentionValues.flatten()
+        if self.clipAttention:
+            sparse_values = torch.clamp(sparse_values, min = -10., max = 10.)
         size = (batch_size_edges, self.multiHeads, num_nodes_current * batch_size, num_nodes_neighbor * batch_size)
         verbosePrint(f'Sparse Attention Dense Shape: {size} [1 x H {self.multiHeads} x N_c {num_nodes_current * batch_size} x N_n {num_nodes_neighbor * batch_size}]', self.verbose)
 
@@ -342,6 +357,9 @@ class TransformerLayer(torch.nn.Module):
         verbosePrint(f'Applying softmax (manual implementation)', self.verbose)
         normalized_weights_ = softmax(attentionScoresSparse, sparse_values, rows, cols, sparse_indices)
         normalized_weights = normalized_weights_.view(batch_size_edges, self.multiHeads, num_edges)
+        if self.useDropout:
+            verbosePrint(f'Applying dropout to normalized weights', self.verbose)
+            normalized_weights = self.attention_dropout(normalized_weights)
         
         verbosePrint(f'Normalized weights shape: {normalized_weights.shape} [1 x H {self.multiHeads} x E {num_edges}]', self.verbose)
         verbosePrint(f'Collecting Value Tokens', self.verbose, separator=True)
@@ -399,8 +417,17 @@ class TransformerLayer(torch.nn.Module):
         verbosePrint(f'Projecting attention output back to latent space', self.verbose, separator=True)
         # Project back to latent space
         
-        attentionOutput = self.W_O(attentionOutputSparse)
+        if self.multiHeadAggregation == 'mean':
+            attentionOutputSparse = attentionOutputSparse.view(batch_size, num_nodes_current, self.multiHeads, self.transformerFeatures)
+            attentionOutput = self.W_O(attentionOutputSparse)
+            verbosePrint(f'Attention output shape before mean aggregation: {attentionOutput.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
+            attentionOutput = attentionOutput.mean(dim=2)
+            verbosePrint(f'Attention output shape after mean aggregation: {attentionOutput.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
+        else:
+            attentionOutput = self.W_O(attentionOutputSparse)
         verbosePrint(f'Attention output shape after projection: {attentionOutput.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
+        if self.useDropout:
+            attentionOutput = self.dropout(attentionOutput)        
         # Residual Connection and Layer Norm (Post-Attention)
         verbosePrint(f'Applying residual connection: {inputTokensCurrent.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
         attentionOutput = inputTokensCurrent + attentionOutput  # Residual connection
