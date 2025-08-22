@@ -185,3 +185,60 @@ def buildDenseNeighborhood(particleState, domain):
 def buildSparseNeighborhood(particleState, neighbors):
     filteredNeighborhood = filterNeighborhoodByKind(particleState, neighbors.neighbors, 'noghost')
     return filteredNeighborhood
+
+from diffSPH.neighborhood import evaluateNeighborhood, filterNeighborhoodByKind, coo_to_csr, SparseNeighborhood
+from diffSPH.neighborhood import buildNeighborhood, computeNeighborhoodStates, filterNeighborhoodByKind, coo_to_csr
+from util import *
+
+def buildSparseNeighborhood(neighborhood):
+    i = neighborhood.row
+    j = neighborhood.col
+
+    return SparseNeighborhood(
+        row = i,
+        col = j,
+        numRows = neighborhood.numRows,
+        numCols = neighborhood.numCols,
+
+        points_a = neighborhood.points_a,
+        points_b = neighborhood.points_b,
+
+        domain = neighborhood.domain,
+    )
+
+
+def prepareState(particles, domain, kernel, config):
+    particleState = wcstateToState(particles)
+    mode = SupportScheme.SuperSymmetric
+    mode_str = mode.name
+    mode_str = mode_str[0].lower() + mode_str[1:]
+
+    neighborhood, sparseNeighborhood_ = buildNeighborhood(particles, particles, domain, verletScale = 1.0, mode = mode_str, priorNeighborhood=None)
+    neighbors = computeNeighborhoodStates(particleState, sparseNeighborhood_, mode_str, kernel, kernel, True, False, False)
+
+    numNeighbors = coo_to_csr(neighbors.neighbors).rowEntries
+    particleState.densities = computeDensity(particleState, kernel, neighbors.get('noghost'), SupportScheme.Gather, config)
+
+    device = particleState.positions.device
+    inputFeatures = torch.cat([
+        # particleState.velocities,
+        torch.ones_like(particleState.velocities[:, 0])[:, None],  # bias term
+    ], dim = 1).to(device)
+
+    gt = particleState.densities.to(device)[:, None]  # ground truth densities
+        
+    filteredNeighborhood = neighbors.neighbors
+    h_i = particleState.supports[filteredNeighborhood.row].to(device)
+    rij, xij_ = computeSparseDistanceTensor(filteredNeighborhood)
+    sparse_edge_attr = xij_ / h_i[:,None]
+
+    # adjacency = buildDenseNeighborhood(particleState, domain)
+    adjacency = buildSparseNeighborhood(neighbors.neighbors)
+
+    h_i = particleState.supports[adjacency.row].to(device)
+    rij, xij_ = computeSparseDistanceTensor(adjacency)
+
+    edge_attr = xij_ / h_i[:,None]
+    edge_index = torch.stack([adjacency.row, adjacency.col])
+
+    return particleState, neighborhood, neighbors, numNeighbors, gt.view(1,-1,gt.shape[-1]), inputFeatures.view(1, -1, inputFeatures.shape[-1]), edge_attr, edge_index, adjacency
