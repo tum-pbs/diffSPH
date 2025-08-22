@@ -142,6 +142,30 @@ def verbosePrint(message: str, verbose: bool, separator = False):
 
 import warnings
 
+from ml import evalBasisFunction
+@torch.jit.script
+def basisEncoderLayer(edgeLengths, basisTerms : int, basisFunction : str = 'ffourier', mode : str = 'cat'):
+    bTerms = []
+    for e in edgeLengths.T:
+        bTerm = evalBasisFunction(basisTerms, e, basisFunction).mT
+        bTerms.append(bTerm)
+    if mode == 'cat':
+        return torch.cat(bTerms, dim = 1)
+    elif mode == 'sum':
+        return torch.stack(bTerms, dim = 0).sum(dim = 0)
+    elif mode == 'prod':
+        return torch.stack(bTerms, dim = 0).prod(dim = 0)
+    elif mode == 'outer':
+        return torch.einsum('ij,ik->ijk', bTerms[0], bTerms[1]).reshape(-1, basisTerms * basisTerms)
+    elif mode == 'i':
+        return bTerms[0]
+    elif mode == 'j':
+        return bTerms[1]
+    elif mode == 'k':
+        return bTerms[2]
+    else:
+        raise ValueError(f'Unknown mode: {mode}')
+
 class TransformerLayer(torch.nn.Module):
     def __init__(self, input_dim, transformer_features, edgeFeatureSize, multi_heads,
                  edge_bias=False, edge_gating=False,
@@ -151,7 +175,9 @@ class TransformerLayer(torch.nn.Module):
                  sharedWeights=False, scaleQ=True,
                  dropoutActive=False, dropoutRate = 0.1, 
                  headAggregation='concat', clipAttention=True,
-                 v2=False, attentionActivation = nn.LeakyReLU(0.2)):
+                 v2=False, attentionActivation = nn.LeakyReLU(0.2),
+                 messagePassingGAT=False,
+                 edgeBasisEncoder = False, edgeBasisTerms = 8, edgeBasisMode = 'cat'):
         super(TransformerLayer, self).__init__()
         
         self.multiHeads = multi_heads
@@ -173,9 +199,32 @@ class TransformerLayer(torch.nn.Module):
         self.clipAttention = clipAttention
         self.multiHeadAggregation = headAggregation
         self.gatV2 = v2
+        self.messagePassingGAT = messagePassingGAT
+        self.edgeBasisEncoder = edgeBasisEncoder
+        self.edgeBasisTerms = edgeBasisTerms
+        self.edgeBasisMode = edgeBasisMode
 
         verbosePrint(f'Initializing TransformerLayer with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
         verbosePrint(f'Building linear projections for Q, K, V', verbose, separator=True)
+
+        if edgeBasisEncoder:
+            terms = edgeBasisTerms
+            mode = edgeBasisMode
+            edge_dimensioniality = 0
+            if mode == 'cat':
+                edge_dimensioniality = terms * edgeFeatureSize
+            elif mode == 'sum' or mode == 'prod':
+                edge_dimensioniality = terms
+            elif mode == 'outer':
+                edge_dimensioniality = int(terms ** edgeFeatureSize)
+            elif mode == 'i' or mode == 'j' or mode == 'k':
+                edge_dimensioniality = terms
+            else:
+                raise ValueError(f'Unknown mode: {mode}')
+        else:
+            edge_dimensioniality = edgeFeatureSize
+        verbosePrint(f'Edge feature dimensionality: {edge_dimensioniality}', verbose)
+            
 
         if not self.gatV2:
             if not sharedWeights:
@@ -195,16 +244,27 @@ class TransformerLayer(torch.nn.Module):
         
         verbosePrint(f'Building edge bias and gating projections', verbose, separator=True)
         if edge_bias:
-            self.W_E = torch.nn.Linear(edgeFeatureSize, multi_heads)
+            self.W_E = torch.nn.Linear(edge_dimensioniality, multi_heads)
             verbosePrint(f'\tUsing edge bias with W_E shape: {self.W_E.weight.shape}', verbose)
         else:
             self.W_E = None            
         # Edge gating is optional and can be used to gate the value matrix with edge features
         if edge_gating:
-            self.W_E_gate = torch.nn.Linear(edgeFeatureSize, multi_heads * transformer_features)
+            self.W_E_gate = torch.nn.Linear(edge_dimensioniality, multi_heads * transformer_features)
             verbosePrint(f'\tUsing edge gating with W_E_gate shape: {self.W_E_gate.weight.shape}', verbose)
         else:
             self.W_E_gate = None
+
+        if self.messagePassingGAT:
+            in_dim = transformer_features + edge_dimensioniality + 1 # 1 for the attention
+            layers = []
+            hiddenSize = ffnHiddenSize if ffnHiddenSize > 0 else transformer_features * 4
+            for i in range(ffnHiddenLayers):
+                layers.append(torch.nn.Linear(in_dim, hiddenSize))
+                layers.append(getActivationLayer(activation))
+                in_dim = hiddenSize
+            layers.append(torch.nn.Linear(in_dim, transformer_features))
+            self.messagePassing = torch.nn.Sequential(*layers)
 
         verbosePrint(f'Building output projection steps', verbose, separator=True)
         self.activation = activation if isinstance(activation, torch.nn.Module) else getActivationLayer(activation)
@@ -233,7 +293,7 @@ class TransformerLayer(torch.nn.Module):
 
         inputSize = 2 * transformer_features
         if self.attentionOpIncludeEdge:
-            inputSize += edgeFeatureSize  # Include edge features in GAT attention
+            inputSize += edge_dimensioniality  # Include edge features in GAT attention
 
         if self.attentionOp == 'GAT':
             verbosePrint(f'\tUsing GAT attention with input size: {inputSize}', verbose)
@@ -248,7 +308,7 @@ class TransformerLayer(torch.nn.Module):
                 layers.append(torch.nn.Linear(in_dim, hiddenSize))
                 layers.append(self.activation)
                 in_dim = hiddenSize
-            layers.append(torch.nn.Linear(in_dim, inputSize))
+            layers.append(torch.nn.Linear(in_dim, 1))
             self.W_a = torch.nn.Sequential(*layers)
         else:
             verbosePrint(f'\tUsing dot attention', verbose)
@@ -258,9 +318,9 @@ class TransformerLayer(torch.nn.Module):
             self.dropout = torch.nn.Dropout(self.dropoutRate)
             self.attention_dropout = torch.nn.Dropout(self.dropoutRate)
 
-        verbosePrint(f'TransformerLayer initialized with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
+        verbosePrint(f'TransformerLayer initialized with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edge_dimensioniality}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
 
-    def forward(self, inputTokens_: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], inputEdges, edgeIndices):
+    def forward(self, inputTokens_: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], inputEdges_, edgeIndices):
         if isinstance(inputTokens_, tuple):
             inputTokensCurrent, inputTokensNeighbor = inputTokens_
         else:
@@ -275,11 +335,18 @@ class TransformerLayer(torch.nn.Module):
         cols = edgeIndices[1]
         
         verbosePrint(f'Input tokens shape: {inputTokensCurrent.shape}', self.verbose, separator=True)
-        if inputEdges is not None:
-            verbosePrint(f'\tInput edges shape: {inputEdges.shape}', self.verbose)
+        if inputEdges_ is not None:
+            verbosePrint(f'\tInput edges shape: {inputEdges_.shape}', self.verbose)
         else:
             verbosePrint(f'\tNo edge features provided', self.verbose)
         verbosePrint(f'Edge indices shape: {edgeIndices.shape}', self.verbose)
+
+        if self.edgeBasisEncoder:
+            inputEdges = basisEncoderLayer(inputEdges_, self.edgeBasisTerms, mode = self.edgeBasisMode)
+            verbosePrint(f'Edge features encoded with basis terms: {self.edgeBasisTerms}, mode: {self.edgeBasisMode}', self.verbose )
+            verbosePrint(f'Encoded edge features shape: {inputEdges.shape}', self.verbose)
+        else:
+            inputEdges = inputEdges_
 
         # Preamble done, Projection into Query, Key, Value next
 
@@ -341,8 +408,12 @@ class TransformerLayer(torch.nn.Module):
                     verbosePrint(f'\t\tConcatenating Q_i and K_j with edge features', self.verbose)
                     # input edges has shape [num_edges, edgeFeatureSize]
                     # We need to expand it to match the batch size and multi-heads
+                    verbosePrint(f'\t\tExpanding input edges to match batch size and multi-heads', self.verbose)
+                    verbosePrint(f'\t\tInput edges shape: {inputEdges.shape} [E {num_edges} x FE {self.edgeFeatureSize}]', self.verbose )
                     
-                    expanded_inputEdges = inputEdges.view(batch_size_edges, 1, Q_i.shape[2], -1).expand(batch_size_edges, self.multiHeads, -1, -1)  # Shape: [B, H, edgeFeatureSize]
+                    expanded_inputEdges = inputEdges.view(batch_size_edges, 1, Q_i.shape[1], -1).expand(batch_size_edges, self.multiHeads, -1, -1)  # Shape: [B, H, edgeFeatureSize]
+                    expanded_inputEdges  = expanded_inputEdges.view(self.multiHeads, num_edges, -1)
+
                     verbosePrint(f'\t\tExpanded input edges [accounting for H]: {expanded_inputEdges.shape} [1 x H {self.multiHeads} x E {num_edges} x FE {self.edgeFeatureSize}]', self.verbose)
                     combined = torch.cat([Q_i, K_j, expanded_inputEdges], dim=-1)  # Shape: [B, H, num_edges, 2*F + edgeFeatureSize]
                 verbosePrint(f'\tCombined shape for attention scores: {combined.shape} [1 {batch_size_edges} x H {self.multiHeads} x E {num_edges} x (2*F + ?FE)]', self.verbose)
@@ -356,7 +427,8 @@ class TransformerLayer(torch.nn.Module):
                 if not self.attentionOpIncludeEdge:
                     combined = torch.cat([Q_i, K_j], dim=-1)  # Shape: [B, H, num_edges, 2*F]
                 else:
-                    expanded_inputEdges = inputEdges.view(batch_size_edges, 1, Q_i.shape[2], -1).expand(batch_size_edges, self.multiHeads, -1, -1)  # Shape: [B, H, edgeFeatureSize]
+                    expanded_inputEdges = inputEdges.view(batch_size_edges, 1, Q_i.shape[1], -1).expand(batch_size_edges, self.multiHeads, -1, -1)  # Shape: [B, H, edgeFeatureSize]
+                    expanded_inputEdges  = expanded_inputEdges.view(self.multiHeads, num_edges, -1)
                     verbosePrint(f'\t\tExpanded input edges [accounting for H]: {expanded_inputEdges.shape} [1 x H {self.multiHeads} x E {num_edges} x FE {self.edgeFeatureSize}]', self.verbose)
                     combined = torch.cat([Q_i, K_j, expanded_inputEdges], dim=-1)  # Shape: [B, H, num_edges, 2*F + edgeFeatureSize]
 
@@ -468,6 +540,50 @@ class TransformerLayer(torch.nn.Module):
         verbosePrint(f'Final messages shape: {messages.shape} [H {self.multiHeads} x E {num_edges} x F {self.transformerFeatures}]', self.verbose)
         verbosePrint(f'Attention Shape: {normalized_weights.shape} [1 x H {self.multiHeads} x E {num_edges}]', self.verbose)
         final_messages = messages * normalized_weights.unsqueeze(-1)
+        # print(f'Final messages after applying attention weights shape: {final_messages.shape} [H {self.multiHeads} x E {num_edges} x F {self.transformerFeatures}]', self.verbose)
+        if not self.messagePassingGAT:
+            final_messages = messages * normalized_weights.unsqueeze(-1)
+        else:
+            verbosePrint(f'\tUsing GAT message passing', self.verbose)
+            # GAT message passing requires a different approach
+            # We need to concatenate the messages with the edge features and apply the MLP
+            messages_ = messages.permute(1, 0, 2)
+            edge_features = inputEdges.view(num_edges, -1)
+            # Goal is E H F shape: [E {num_edges} x H {self.multiHeads} x F {self.edgeFeatureSize}]
+
+            attentionValues = normalized_weights.view(self.multiHeads, -1).mT.unsqueeze(-1)  # Shape: [H, B, E]
+
+            # Need to map from E x FE to E x H x FE
+            edge_features = edge_features.unsqueeze(1).expand(-1, self.multiHeads, -1)
+
+            verbosePrint(f'\tMessages shape before GAT message passing: {messages_.shape} [E {num_edges} x H {self.multiHeads} x F {self.transformerFeatures}]', self.verbose)
+            verbosePrint(f'\tAttention values shape: {attentionValues.shape} [E {num_edges} x H {self.multiHeads}]', self.verbose)
+            verbosePrint(f'\tEdge features shape: {edge_features.shape} [E {num_edges} x H {self.multiHeads} x FE {self.edgeFeatureSize}]', self.verbose)
+
+
+            # print(f'\tMessages: min: {messages_.min()}, max: {messages_.max()}, mean: {messages_.mean()}, std: {messages_.std()}')
+            # print(f'\tAttention Values: min: {attentionValues.min()}, max: {attentionValues.max()}, mean: {attentionValues.mean()}, std: {attentionValues.std()}')
+            # print(f'\tEdge Features: min: {edge_features.min()}, max: {edge_features.max()}, mean: {edge_features.mean()}, std: {edge_features.std()}')
+
+            # Concatenate messages, attention values, and edge features
+            combined_messages = torch.cat([messages_ * 0, attentionValues * 0, edge_features], dim=-1)
+
+
+
+            # print(f'\tCombined messages shape: {combined_messages.shape} [H {self.multiHeads} x E {num_edges} x (F {self.transformerFeatures} + ?FE {self.edgeFeatureSize} + 1)]', self.verbose)
+            # print(f'\tCombined messages: min: {combined_messages.min()}, max: {combined_messages.max()}, mean: {combined_messages.mean()}, std: {combined_messages.std()}')
+
+            final_messages = self.messagePassing(combined_messages).permute(1, 0, 2)  # Apply the MLP
+
+
+
+            verbosePrint(f'\tFinal messages shape after GAT message passing: {final_messages.shape} [H {self.multiHeads} x E {num_edges} x F {self.transformerFeatures}]', self.verbose)
+            # print(f'Final messages: min: {final_messages.min()}, max: {final_messages.max()}, mean: {final_messages.mean()}, std: {final_messages.std()}')
+        # print(f'Attention Weights: [{normalized_weights.shape}]', normalized_weights)
+        # print(f'Messages [{messages.shape}]: ', messages)
+        # print(f'Final Messages [{final_messages.shape}]: ', final_messages)
+        # print(final_messages)
+
         verbosePrint(f'Final messages after applying attention weights shape: {final_messages.shape} [H {self.multiHeads} x E {num_edges} x F {self.transformerFeatures}]', self.verbose)
         message_values = final_messages.reshape(-1, self.transformerFeatures)
         verbosePrint(f'Message values shape: {message_values.shape} [B * H * E {batch_size_edges * self.multiHeads * num_edges} x F {self.transformerFeatures}]', self.verbose)
@@ -495,6 +611,8 @@ class TransformerLayer(torch.nn.Module):
 
         dense_output = aggregated_messages_sparse.to_dense()
 
+        # print(dense_output)
+
         verbosePrint(f'Dense output shape: {dense_output.shape} [B {batch_size * num_nodes_current} x H {self.multiHeads} x F {self.transformerFeatures}]', self.verbose)
         attentionOutputSparse = dense_output.permute(0, 2, 1, 3).reshape(num_nodes_current, batch_size, -1).transpose(0, 1)
         verbosePrint(f'Attention output sparse shape: {attentionOutputSparse.shape} [B {batch_size} x N {num_nodes_current} x H*F {self.multiHeads * self.transformerFeatures}]', self.verbose)
@@ -515,9 +633,12 @@ class TransformerLayer(torch.nn.Module):
             attentionOutput = self.dropout(attentionOutput)        
         # Residual Connection and Layer Norm (Post-Attention)
         verbosePrint(f'Applying residual connection: {inputTokensCurrent.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
-        attentionOutput = inputTokensCurrent + attentionOutput  # Residual connection
+        # attentionOutput = inputTokensCurrent + attentionOutput  # Residual connection
         verbosePrint(f'Running Layer Norm', self.verbose)
-        attentionOutput = self.layer_norm1(attentionOutput)
+
+        # print(f'Pre Norm min: {attentionOutput.min()}, max: {attentionOutput.max()}, mean: {attentionOutput.mean()}, std: {attentionOutput.std()}')
+        # attentionOutput = self.layer_norm1(attentionOutput)
+        # print(f'Post Norm min: {attentionOutput.min()}, max: {attentionOutput.max()}, mean: {attentionOutput.mean()}, std: {attentionOutput.std()}')
 
         verbosePrint(f'Applying Feedforward Network (FFN)', self.verbose)
         ffnOutput = self.ffn(attentionOutput)
@@ -525,7 +646,10 @@ class TransformerLayer(torch.nn.Module):
 
         # Residual Connection and Layer Norm (Post-FFN)
         transformerOutput = attentionOutput + ffnOutput  # Residual connection
-        transformerOutput = self.layer_norm2(transformerOutput)
+        transformerOutput = attentionOutput
+        # print(f'Pre Norm min: {transformerOutput.min()}, max: {transformerOutput.max()}, mean: {transformerOutput.mean()}, std: {transformerOutput.std()}')
+        # transformerOutput = self.layer_norm2(transformerOutput)
+        # print(f'Post Norm min: {transformerOutput.min()}, max: {transformerOutput.max()}, mean: {transformerOutput.mean()}, std: {transformerOutput.std()}' )
         verbosePrint(f'Final transformerOutput shape after residual connection and layer norm: {transformerOutput.shape} [B {batch_size} x N {num_nodes_current} x L {latentSpaceSize}]', self.verbose)
 
         return transformerOutput

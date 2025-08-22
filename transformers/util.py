@@ -229,14 +229,14 @@ def prepareState(particles, domain, kernel, config):
         
     filteredNeighborhood = neighbors.neighbors
     h_i = particleState.supports[filteredNeighborhood.row].to(device)
-    rij, xij_ = computeSparseDistanceTensor(filteredNeighborhood)
+    rij, xij_ = computeSparseDistanceTensor(filteredNeighborhood, normalize = False)
     sparse_edge_attr = xij_ / h_i[:,None]
 
     # adjacency = buildDenseNeighborhood(particleState, domain)
     adjacency = buildSparseNeighborhood(neighbors.neighbors)
 
     h_i = particleState.supports[adjacency.row].to(device)
-    rij, xij_ = computeSparseDistanceTensor(adjacency)
+    rij, xij_ = computeSparseDistanceTensor(adjacency, normalize = False)
 
     edge_attr = xij_ / h_i[:,None]
     edge_index = torch.stack([adjacency.row, adjacency.col])
