@@ -177,7 +177,8 @@ class TransformerLayer(torch.nn.Module):
                  headAggregation='concat', clipAttention=True,
                  v2=False, attentionActivation = nn.LeakyReLU(0.2),
                  messagePassingGAT=False,
-                 edgeBasisEncoder = False, edgeBasisTerms = 8, edgeBasisMode = 'cat'):
+                 edgeBasisEncoder = False, edgeBasisTerms = 8, edgeBasisMode = 'cat', 
+                 shepardAttention = False):
         super(TransformerLayer, self).__init__()
         
         self.multiHeads = multi_heads
@@ -203,6 +204,8 @@ class TransformerLayer(torch.nn.Module):
         self.edgeBasisEncoder = edgeBasisEncoder
         self.edgeBasisTerms = edgeBasisTerms
         self.edgeBasisMode = edgeBasisMode
+
+        self.shepardAttention = shepardAttention
 
         verbosePrint(f'Initializing TransformerLayer with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edgeFeatureSize}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
         verbosePrint(f'Building linear projections for Q, K, V', verbose, separator=True)
@@ -320,7 +323,7 @@ class TransformerLayer(torch.nn.Module):
 
         verbosePrint(f'TransformerLayer initialized with input_dim={input_dim}, transformer_features={transformer_features}, edgeFeatureSize={edge_dimensioniality}, multi_heads={multi_heads}, edge_bias={edge_bias}, edge_gating={edge_gating}, additive_bias={additive_bias}', verbose)
 
-    def forward(self, inputTokens_: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], inputEdges_, edgeIndices):
+    def forward(self, inputTokens_: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], inputEdges_, edgeIndices, shepardValues = None):
         if isinstance(inputTokens_, tuple):
             inputTokensCurrent, inputTokensNeighbor = inputTokens_
         else:
@@ -469,6 +472,7 @@ class TransformerLayer(torch.nn.Module):
         sparse_values = sparseAttentionValues.flatten()
         if self.clipAttention:
             sparse_values = torch.clamp(sparse_values, min = -10., max = 10.)
+
         size = (batch_size_edges, self.multiHeads, num_nodes_current * batch_size, num_nodes_neighbor * batch_size)
         verbosePrint(f'Sparse Attention Dense Shape: {size} [1 x H {self.multiHeads} x N_c {num_nodes_current * batch_size} x N_n {num_nodes_neighbor * batch_size}]', self.verbose)
 
@@ -610,6 +614,20 @@ class TransformerLayer(torch.nn.Module):
             verbosePrint(f'Aggregated messages shape: {aggregated_messages_sparse.shape} [1 x H {self.multiHeads} x N_curr {num_nodes_current * batch_size} x F {self.transformerFeatures}]', self.verbose)
 
         dense_output = aggregated_messages_sparse.to_dense()
+
+        if self.shepardAttention and shepardValues is not None:
+            verbosePrint(f'Applying Shepard attention modulation', self.verbose, separator=True)
+            # shepardValues has shape [batch_size, num_nodes_current, num_nodes_neighbor]
+            # Multiply shepardValues with the dense output after aggregation as a form of scaled softmax
+            dense_output = dense_output * shepardValues.unsqueeze(-1)
+            verbosePrint(f'Dense output shape after Shepard modulation: {dense_output.shape} [1 x H {self.multiHeads} x N {num_nodes_current * batch_size} x F {self.transformerFeatures}]', self.verbose)
+            # print(f'Shepard Values: min: {shepardValues.min()}, max: {shepardValues.max()}, mean: {shepardValues.mean()}, std: {shepardValues.std()}')
+            # print(f'Dense Output after Shepard: min: {dense_output.min()},        
+            #       max: {dense_output.max()}, mean: {dense_output.mean()}, std: {dense_output.std()}')
+        elif self.shepardAttention and shepardValues is None:
+            warnings.warn("shepardAttention is True but no shepardValues provided. Skipping Shepard modulation.", UserWarning)
+        else:
+            verbosePrint(f'\tNo Shepard attention modulation applied', self.verbose)
 
         # print(dense_output)
 
