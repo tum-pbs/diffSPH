@@ -17,6 +17,28 @@ from util import verbosePrint
 from sparse import buildSparseTensor
 from softmax import softmax
 
+# This is a message passing layer that is part of the transformer architecture, however, it is expanded in functionality
+# to match what is normally expected from a graph neural network layer.
+#
+# The normal message passing inputs are:
+# - queryTokens: the tokens for which we want to compute the new representation (shape: [batch_size, num_nodes_current, latentSpaceSize]) [i]
+# - keyTokens: the tokens that provide the context (shape: [batch_size, num_nodes_neighbor, latentSpaceSize]) [j]
+# - edge_index: the indices of the edges in the sparse neighborhood (shape: [2, num_edges]) where the first row are the indices for queryTokens and the second row for keyTokens
+# - edge_attr: the features associated with each edge (shape: [num_edges, edgeFeatureSize]) (spatial information mostly)
+#
+# By adding an attention Mechanism, we add an aditional input:
+# - attention_values: the values to modulate the attention scores (shape: [num_edges, num_attention_heads]) (optional)
+#
+# We also add a shepard like scaling value to support spatial normalization
+# - S_k: the shepard values to scale the attention scores (shape: [num_edges]) (optional)
+#
+# The output is:
+# - outputTokens: the new representation of the query tokens (shape: [batch_size, num_nodes_current, latentSpaceSize])
+# The output tokens have the same shape as the input query tokens, but their values have been updated based on the message passing mechanism.
+
+
+
+
 class TransformerLayer(torch.nn.Module):
     def __init__(self, input_dim, transformer_features, edgeFeatureSize, multi_heads,
                  edge_bias=False, edge_gating=False,
