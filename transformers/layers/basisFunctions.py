@@ -310,7 +310,12 @@ def evalBasisFunction(n : int, x : torch.Tensor, which : str = 'chebyshev', peri
     if s[0] == 'linear':
         return evalRBFSeries(n, x, which = 'linear', epsilon = 1., periodic = periodic)        
     if s[0] == 'dmcf':
-        return evalRBFSeries(n, x, which = 'linear', epsilon = 1., periodic = periodic)      #torch.sign(x) * evalRBFSeries(n, torch.abs(x) * 2 - 1, which = 'linear', epsilon = 1., periodic = periodic)              
+        return evalRBFSeries(n, x, which = 'linear', epsilon = 1., periodic = periodic)      #torch.sign(x) * evalRBFSeries(n, torch.abs(x) * 2 - 1, which = 'linear', epsilon = 1., periodic = periodic)     
+    if s[0] == 'log':
+        if n != 1:
+            warnings.warn('Log basis function only supports n = 1, ignoring n')
+        return (torch.sign(x) * torch.log1p(torch.abs(x))).unsqueeze(0)
+
     if s[0] == 'rbf':
         eps = 1. if len(s) < 3 else float(s[2])
         return evalRBFSeries(n, x, which = s[1], epsilon = eps, periodic = periodic)     
@@ -329,6 +334,7 @@ def basisEncoderLayer(edgeLengths, basisTerms : int, basisFunction : str = 'ffou
     for e in edgeLengths.T:
         bTerm = evalBasisFunction(basisTerms, e, basisFunction).mT
         bTerms.append(bTerm)
+
     if mode == 'cat':
         return torch.cat(bTerms, dim = 1)
     elif mode == 'sum':

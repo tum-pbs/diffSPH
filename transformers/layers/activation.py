@@ -5,57 +5,57 @@ from collections import OrderedDict
 
 def getActivationFunctions():
     return ['elu', 'relu', 'hardtanh', 'hardswish', 'selu', 'celu', 'leaky_relu', 'prelu', 'rrelu', 'glu', 'gelu', 'logsigmoid', 'hardshrink', 'tanhshrink', 'softsign', 'softplus', 'softmin', 'softmax', 'softshrink', 'log_softmax', 'tanh', 'sigmoid', 'hardsigmoid', 'silu', 'mish']
-def getActivationLayer(function: str):
+def getActivationLayer(function: str, *args):
     if function == 'elu':
-        return nn.ELU()
+        return nn.ELU(*args)
     elif function == 'relu':
-        return nn.ReLU()
+        return nn.ReLU(*args)
     elif function == 'hardtanh':
-        return nn.Hardtanh()
+        return nn.Hardtanh(*args)
     elif function == 'hardswish':
-        return nn.Hardswish()
+        return nn.Hardswish(*args)
     elif function == 'selu':
-        return nn.SELU()
+        return nn.SELU(*args)
     elif function == 'celu':
-        return nn.CELU()
+        return nn.CELU(*args)
     elif function == 'leaky_relu':
-        return nn.LeakyReLU()
+        return nn.LeakyReLU(*args)
     elif function == 'prelu':
-        return nn.PReLU()
+        return nn.PReLU(*args)
     elif function == 'rrelu':
-        return nn.RReLU()
+        return nn.RReLU(*args)
     elif function == 'glu':
-        return nn.GLU()
+        return nn.GLU(*args)
     elif function == 'gelu':
-        return nn.GELU()
+        return nn.GELU(*args)
     elif function == 'logsigmoid':
-        return nn.LogSigmoid()
+        return nn.LogSigmoid(*args)
     elif function == 'hardshrink':
-        return nn.Hardshrink()
+        return nn.Hardshrink(*args)
     elif function == 'tanhshrink':
-        return nn.Tanhshrink()
+        return nn.Tanhshrink(*args)
     elif function == 'softsign':
-        return nn.Softsign()
+        return nn.Softsign(*args)
     elif function == 'softplus':
-        return nn.Softplus()
+        return nn.Softplus(*args)
     elif function == 'softmin':
-        return nn.Softmin()
+        return nn.Softmin(*args)
     elif function == 'softmax':
-        return nn.Softmax()
+        return nn.Softmax(*args)
     elif function == 'softshrink':
-        return nn.Softshrink()
+        return nn.Softshrink(*args)
     elif function == 'log_softmax':
-        return nn.LogSoftmax()
+        return nn.LogSoftmax(*args)
     elif function == 'tanh':
-        return nn.Tanh()
+        return nn.Tanh(*args)
     elif function == 'sigmoid':
-        return nn.Sigmoid()
+        return nn.Sigmoid(*args)
     elif function == 'hardsigmoid':
-        return nn.Hardsigmoid()
+        return nn.Hardsigmoid(*args)
     elif function == 'silu':
-        return nn.SiLU()
+        return nn.SiLU(*args)
     elif function == 'mish':
-        return nn.Mish()
+        return nn.Mish(*args)
     elif function == 'none':
         return nn.Identity()
     else:
