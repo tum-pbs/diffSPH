@@ -188,15 +188,15 @@ class InputEncodeLayer(torch.nn.Module):
                verbosePrint(f'\tScaling positions by cutoff radius for APB encoding', self.verbose)
                encodedPositions = inputPositions / cutoffRadius.view(-1,1)
 
-            if self.absolutePositionBiasBaseEncoding:
-                verbosePrint(f'\tUsing basis function encoding for APB', self.verbose)
-                encodedPositions = self.apbBasisEncoder(encodedPositions)
-            verbosePrint(f'\tEncoded positions shape (before flattening): {encodedPositions.shape}', self.verbose)
+            # if self.absolutePositionBiasBaseEncoding:
+            #     verbosePrint(f'\tUsing basis function encoding for APB', self.verbose)
+            #     encodedPositions = self.apbBasisEncoder(encodedPositions)
+            # verbosePrint(f'\tEncoded positions shape (before flattening): {encodedPositions.shape}', self.verbose)
 
-            if len(encodedPositions.shape) > 2:
-                verbosePrint(f'\tFlattening encoded positions for APB', self.verbose)
-                encodedPositions = encodedPositions.view(encodedPositions.shape[0], -1)
-            verbosePrint(f'\tEncoded positions shape (after flattening): {encodedPositions.shape}', self.verbose)
+            # if len(encodedPositions.shape) > 2:
+            #     verbosePrint(f'\tFlattening encoded positions for APB', self.verbose)
+            #     encodedPositions = encodedPositions.view(encodedPositions.shape[0], -1)
+            # verbosePrint(f'\tEncoded positions shape (after flattening): {encodedPositions.shape}', self.verbose)
 
             verbosePrint(f'\tPassing encoded positions through APB encoder', self.verbose)
             apb = self.apbEncoder(encodedPositions)

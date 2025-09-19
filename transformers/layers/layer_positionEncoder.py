@@ -46,6 +46,61 @@ The layer also provides an outputShape attribute that indicates the shape of the
 
 As an additional option skip_basis can be set to True, which will bypass the basis encoding and only apply the projection if enabled. This can be useful for ablation studies or when testing the impact of the basis encoding on model performance.
 """
+def computeBasisEncoderOutputShape(
+    spatial_dim: int = 3,
+    basis_terms: int = 16,
+    basis_function: str = 'ffourier',
+    skip_basis: bool = False,
+    mode: str = 'cat',
+    
+    project_out: bool = False,
+    project_linear: bool = True,
+    project_mlp_properties: Optional[dict] = None,
+    
+    out_dim: Optional[int] = None,
+    verbose: bool = False,
+    verbosePrefix: str = ''
+):
+    verbosePrint(f'{verbosePrefix}Computing BasisEncoder output shape', verbose)
+
+    basisShape = None
+    if skip_basis:
+        basisShape = [spatial_dim]
+    else:
+        if mode == 'cat':
+            basisShape = [basis_terms * spatial_dim]
+        elif mode == 'sum' or mode == 'prod':
+            basisShape = [basis_terms]
+        elif mode == 'outer':
+            basisShape = [basis_terms] * spatial_dim
+        elif mode in ['i','j','k']:
+            if mode == 'i' and spatial_dim < 1:
+                raise ValueError('Mode i requires spatial_dim >= 1')
+            if mode == 'j' and spatial_dim < 2:
+                raise ValueError('Mode j requires spatial_dim >= 2')
+            if mode == 'k' and spatial_dim < 3:
+                raise ValueError('Mode k requires spatial_dim >= 3')
+            basisShape = [basis_terms]
+        else:
+            raise ValueError(f'Unknown mode: {mode}')
+    
+    basisTerms = 1
+    for s in basisShape:
+        basisTerms *= s
+        
+    verbosePrint(f'{verbosePrefix}BasisEncoder: basisShape={basisShape}, total basis terms={basisTerms}', verbose)
+    
+    outputShape = None
+    if not project_out:
+        outputShape = basisTerms
+    else:
+        outputShape = out_dim if out_dim is not None else basisTerms
+        
+    verbosePrint(f'{verbosePrefix}BasisEncoder: project_out={project_out}, outputShape={outputShape}', verbose)
+            
+    return outputShape
+    
+
 class BasisEncoder(nn.Module):
     def __init__(self,
                  spatial_dim: int = 3,

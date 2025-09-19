@@ -1,3 +1,4 @@
+from copy import error
 import warnings
 import torch
 from torch import Tensor
@@ -17,7 +18,7 @@ from .networkUtil import verbosePrint, verboseBannerPrint
 from .sparse import buildSparseTensor
 from .softmax import softmax
 from .mlp import buildMLPwDict, getDefaultMLPDict
-from .basisFunctions import BasisEncoder
+from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
 from .windows import getWindowFunction
 
 
@@ -97,9 +98,10 @@ class AttentionMechanismLayer(torch.nn.Module):
                     relativePositionBiasBaseTerms: int = 16,
                     relativePositionBiasBaseMode: str = 'cat', # 'cat', 'sum',
                     relativePositionBiasLinear: bool = True,
-                    relativePositionBiasEncoder: bool = True,
+                    relativePositionBiasEncoder: Optional[bool] = None,
                     relativePositionBiasMLPDict: Optional[dict] = None, 
                     relativePositionBiasDim: Optional[int] = None,
+                    relativePositionBiasSplit: bool = False,
 
                     windowFunction: bool = False,
                     windowFunctionType: str = 'cubic',
@@ -173,7 +175,9 @@ class AttentionMechanismLayer(torch.nn.Module):
         self.relativePositionBiasMLPDict = relativePositionBiasMLPDict if relativePositionBiasMLPDict is not None else getDefaultMLPDict()
         self.relativePositionBiasAfterAttention = relativePositionBiasAfterAttention
         self.relativePositionBiasEncoder = relativePositionBiasEncoder
-        self.relativePositionBiasDim = relativePositionBiasDim if relativePositionBiasDim is not None else (self.num_heads if self.relativePositionBiasAfterAttention else self.transformer_dim)
+        self.relativePositionBiasDim = relativePositionBiasDim if relativePositionBiasDim is not None else (self.num_heads if self.relativePositionBiasAfterAttention else self.
+        transformer_dim)
+        self.relativePositionBiasSplit = relativePositionBiasSplit
         verbosePrint(f'\tRelative Position Bias: {self.relativePositionBias}', verbose, separator=True)
         if self.relativePositionBias or self.cConvMode:
             verbosePrint(f'\t\tRelative Position Bias Scaled Positions: {self.relativePositionBiasScaledPositions}', verbose)
@@ -245,64 +249,194 @@ class AttentionMechanismLayer(torch.nn.Module):
         #                     Build Relative Position Bias Layer                      #
         ################################################################################
         verbosePrint(f'Building Relative Position Bias...', verbose, separator=True)
-        if self.relativePositionBias or self.cConvMode:
-            verbosePrint(f'\trelative position bias (rpb) encoding:', self.verbose, separator=True)
-            if self.relativePositionBiasScaledPositions:
-                verbosePrint(f'\t\tUsing scaled positions for rpb encoding', self.verbose)
-            if self.relativePositionBiasMultiplicative:
-                verbosePrint(f'\t\tUsing multiplicative rpb', self.verbose)
-            else:
-                verbosePrint(f'\t\tUsing additive rpb', self.verbose)
-            if self.relativePositionBiasBaseEncoding:
-                verbosePrint(f'\t\tUsing basis function encoding for rpb', self.verbose)
-                self.rpbBasisEncoder = BasisEncoder(
-                    basisTerms=self.relativePositionBiasBaseTerms,
-                    basisFunction=self.relativePositionBiasBaseFunction,
-                    mode=self.relativePositionBiasBaseMode,
-                    dim=self.edge_dim,
-                )
-                self.rpbBasisShape = self.rpbBasisEncoder.outputShape
-                verbosePrint(f'\t\trpb basis function encoding output shape: {self.rpbBasisShape}', self.verbose)
-                self.rpbInputDim = self.rpbBasisShape
-            else:
-                verbosePrint(f'\t\tUsing raw positions for rpb', self.verbose)
-                self.rpbInputDim = (self.edge_dim,)
-            # Input Dim might be multi dimensional, needs to be flattened before running through the input Encoder
-            self.rpbFlatInputDim = self.rpbInputDim
-            if len(self.rpbInputDim) > 0:
-                self.rpbFlatInputDim = 1
-                for s in self.rpbInputDim:
-                    self.rpbFlatInputDim *= s
-            if relativePositionBiasEncoder:
-                if self.relativePositionBiasLinear:
-                    verbosePrint(f'\t\tUsing linear layer for rpb encoding', self.verbose)
-                    self.rpbEncoder = nn.Linear(self.rpbFlatInputDim, self.relativePositionBiasDim, bias=False)
-                else:
-                    verbosePrint(f'\t\tUsing MLP for rpb encoding', self.verbose)
-                    if self.relativePositionBiasMLPDict is None:
-                        raise ValueError('relativePositionBiasMLPDict must be provided if relativePositionBiasLinear is False')
-                    if self.relativePositionBiasMLPDict is not None:
-                        self.rpbEncoder = buildMLPwDict({
-                            'inputFeatures': self.rpbFlatInputDim,
-                            'output': self.relativePositionBiasDim,
-                            **self.relativePositionBiasMLPDict
-                        }, verbose = verbose, verbosePrefix='\t\t')
-                    else:
-                        self.rpbEncoder = buildMLPwDict({
-                            'inputFeatures': self.rpbFlatInputDim,
-                            'output': self.relativePositionBiasDim,
-                        }, verbose = verbose, verbosePrefix='\t\t')
-                    numberOfParameters = sum(p.numel() for p in self.rpbEncoder.parameters())
-                    verbosePrint(f'\t\tNumber of parameters in rpb encoder MLP: {numberOfParameters}', self.verbose)
-            else:
-                verbosePrint(f'\t\tNot using any encoder for rpb, using raw (or basis encoded) positions directly', self.verbose)
-                self.relativePositionBiasDim = self.rpbFlatInputDim
 
-            rpbDim = self.relativePositionBiasDim #if (self.relativePositionBias and not self.relativePositionBiasAfterAttention) else 0
-            if self.relativePositionBiasEncoder:
-                rpbDim = rpbDim // self.num_heads
+        self.rpbEncoder = None
+
+        _ = """
+For the relative position bias there are a lot of options and its convenient to recap them here:
+
+Generally we have two choices for the bias (this is not gating)
+1. Compute the RPB _before_ the attention mechanism
+2. Compute the RPB _after_ the attention mechanism
+
+For the first case (before attention), this is only really sensible with a linear or MLP attention mechanism. In case of linear and MLP mechanisms the RPB can have any dimensions, however, there are still two sensible choices:
+- The RPB has an arbitrary dimension and is applied equally to all attention heads
+- The RPB has a dimension that is a multiple of the number of attention heads and is split across the attention heads
+
+In case of applying the RPB after the attention mechanism, the RPB needs to have a dimension equal to the number of attention heads, as it is added to the attention scores for each head.
+
+For the RPB computation we have the following options:
+1 use the raw edge distances
+2 encode the raw edge distances using a basis encoder
+3 apply a projection (linear or MLP) to the (potentially encoded) edge distances to get the final RPB
+
+For 1 the RPB dimension is [num_edges, spatial_dim]
+For 2 the RPB dimension is [num_edges, encoded_dim] where encoded_dim dependss on the basis encoder
+For 3 the RPB dimension is [num_edges, rpb_dim] where rpb_dim is the output dimension of the projection
+
+We can also compute the output dimension of the RPB as requested by the user and get rpb_dim.
+
+So we get the following logic:
+if RPB before attention:
+    if attention is dot or scaled dot:
+        raise error
+    else:
+        if split across heads:
+            if rpb_dim % num_heads != 0:
+                raise error
+            else:
+                rpb_dim = rpb_dim
+                rpb_shape = [num_heads, rpb_dim // num_heads]
+        else: # applied equally to all heads
+            rpb_dim = rpb_dim
+            rpb_shape = [rpb_dim]
+else: # RPB after attention
+    if projection is None:
+        if rpb_dim != num_heads:
+            add projection to num_heads
+    else:
+        if projection is true:
+            if rpb_dim != num_heads:
+                raise error
+        else: # projection is false
+            if rpb_dim != num_heads:
+                add projection to num_heads
+
+This means that the RPB has the following parameters:
+- spatial_dim: int - the spatial dimension of the edge distances (e.g. 3 for 3D positions)
+
+- basis_terms: int - the number of basis functions to use for encoding the edge distances
+- basis_function: str - the type of basis function to use for encoding the edge distances (e.g. 'fourier', 'gaussian')
+- mode: str - the mode of combining the basis functions (e.g. 'cat', 'sum')
+
+- skip_basis: bool - whether to skip the basis function encoding and use the raw edge distances
+- split_across_heads: bool - whether to split the RPB across the attention heads (only relevant if RPB is computed before attention)
+- after_attention: bool - whether the RPB is computed after the attention mechanism
+
+- project_out: bool - whether to project the (potentially encoded) edge distances to the final RPB dimension
+- project_linear: bool - whether to use a linear projection (if False, use MLP)
+- project_mlp_properties: dict - dictionary defining the MLP architecture for the projection (if project_linear is False)
+
+- out_dim: int - the final RPB dimension (only used if project_out is True)
+"""
+
+        if self.relativePositionBias or self.cConvMode:
+
+            ################################################################################
+            # Start by collecting all properties for the RPB
+            ################################################################################
+
+            spatial_dim = self.edge_dim
+
+            basis_terms = self.relativePositionBiasBaseTerms
+            basis_function = self.relativePositionBiasBaseFunction
+            mode = self.relativePositionBiasBaseMode
+
+            skip_basis = not self.relativePositionBiasBaseEncoding
+            split_across_heads = self.relativePositionBiasSplit
+            after_attention = self.relativePositionBiasAfterAttention
+
+            project_out = self.relativePositionBiasEncoder
+            project_linear = self.relativePositionBiasLinear
+            project_mlp_dict = self.relativePositionBiasMLPDict
+
+            out_dim = self.relativePositionBiasDim
+
+            basisEncoderOutputShape = computeBasisEncoderOutputShape(
+                spatial_dim=spatial_dim,
+                basis_terms=basis_terms,
+                basis_function=basis_function,
+                skip_basis=skip_basis,
+                mode=mode,
+                project_out=self.relativePositionBiasEncoder if self.relativePositionBiasEncoder is not None else False,
+                out_dim=out_dim,
+                verbose=False
+            )
+            verbosePrint(f'\t\trpb basis function encoding output shape: {basisEncoderOutputShape}', self.verbose)
+            out_dim = basisEncoderOutputShape
+
+            ################################################################################
+            # Dimension checking logic from above
+            ################################################################################
+
+            if self.cConvMode:
+                verbosePrint(f'\tIn cConv mode the relative position bias is used to compute W_Q and W_K', verbose)
+                # In CConv mode we always use the settings as defined
+                # if project_out is None default to False
+                self.relativePositionBiasEncoder = project_out if project_out is not None else True
+                if self.relativePositionBiasSplit:
+                    warnings.warn('Using relativePositionBiasSplit=True in cConvMode is not recommended, as it complicates the attention mechanism unnecessarily')
+                    self.relativePositionBiasSplit = False
+            else: # normal rpb
+                verbosePrint(f'\tIn normal attention mode the relative position bias is used as bias to the attention scores', verbose)
+
+                if not after_attention:
+                    verbosePrint(f'\t\tRelative Position Bias is computed before the attention mechanism', verbose)
+                    if self.attentionMechanism in ['dot', 'scaled_dot']:
+                        verbosePrint(f'\t\tRelative Position Bias is not supported for dot or scaled dot attention', verbose)
+                        raise ValueError("Relative position bias not supported for dot or scaled dot attention")
+                    else:
+                        if split_across_heads:
+                            verbosePrint(f'\t\tRelative Position Bias is split across heads', verbose)
+                            if out_dim % num_heads != 0:
+                                verbosePrint(f'\t\tRelative Position Bias split across heads requires out_dim to be a multiple of num_heads', verbose)
+                                raise ValueError(f'relativePositionBiasDim must be a multiple of num_heads ({self.num_heads}) if relativePositionBiasSplit is True and relativePositionBiasAfterAttention is False, got {out_dim}')
+                            else:
+                                verbosePrint(f'\t\tRelative Position Bias split across heads is valid', verbose)
+                                rpb_dim = out_dim
+                                rpb_shape = [num_heads, rpb_dim // num_heads]
+                                out_dim = rpb_shape[0] * rpb_shape[1]
+                                verbosePrint(f'\t\tSetting relative position bias dimension to {out_dim} [{rpb_shape[0]} {rpb_shape[1]}]', verbose)
+
+                        else: # applied equally to all heads
+                            rpb_dim = out_dim
+                            rpb_shape = [rpb_dim]
+                            verbosePrint(f'\t\tRelative Position Bias applied equally to all heads with dimension {out_dim} [{rpb_shape[0]}]', verbose)
+
+                else: # RPB after attention
+                    verbosePrint(f'\t\tRelative Position Bias is computed after the attention mechanism', verbose)
+                    if project_out is None:
+                        verbosePrint(f'\t\tRelative Position Bias projection to out_dim is not specified, setting to True', verbose)
+                        if out_dim != num_heads:
+                            verbosePrint(f'\t\trelativePositionBiasDim must be equal to num_heads ({self.num_heads}) if relativePositionBiasAfterAttention is True, got {out_dim}, setting relativePositionBiasDim to {num_heads}', verbose)
+                            project_out = True
+                            out_dim = num_heads
+                    else:
+                        if project_out is True:
+                            verbosePrint(f'\t\tRelative Position Bias projection to out_dim is set to True', verbose)
+                            if out_dim != num_heads:
+                                verbosePrint(f'\t\trelativePositionBiasDim must be equal to num_heads ({self.num_heads}) if relativePositionBiasAfterAttention is True, got {out_dim}, setting relativePositionBiasDim to {num_heads}', verbose)
+                                out_dim = num_heads
+                                warnings.warn(f'relativePositionBiasDim must be equal to num_heads ({self.num_heads}) if relativePositionBiasAfterAttention is True and relativePositionBiasEncoder is True, got {out_dim}, setting relativePositionBiasDim to {out_dim}')
+                        else: # projection is false
+                            verbosePrint(f'\t\tRelative Position Bias projection to out_dim is set to False', verbose)
+                            if out_dim != num_heads:
+                                verbosePrint(f'\t\trelativePositionBiasDim must be equal to num_heads ({self.num_heads}) if relativePositionBiasAfterAttention is True and relativePositionBiasEncoder is False, got {out_dim}', verbose)
+                                raise ValueError(f'relativePositionBiasDim must be equal to num_heads ({self.num_heads}) if relativePositionBiasAfterAttention is True and relativePositionBiasEncoder is False, got {out_dim}')
+            self.relativePositionBiasEncoder = project_out
+            split_across_heads = self.relativePositionBiasSplit
+            
+            self.rpbEncoder = BasisEncoder(
+                spatial_dim=spatial_dim,
+                basis_terms=basis_terms,
+                basis_function=basis_function,
+                skip_basis=skip_basis,
+                mode=mode,
+                
+                out_dim=out_dim,
+                
+                project_mlp_properties=project_mlp_dict,
+                project_linear=project_linear,
+                project_out= self.relativePositionBiasEncoder,
+
+                verbose=verbose, verbosePrefix='\t\t',
+            )
+            self.rpbDim = self.rpbEncoder.outputShape
+            verbosePrint(f'\trpb encoder output shape: {self.rpbDim}', verbose)
+            self.rpbDimPerHead = self.rpbDim // self.num_heads if split_across_heads else self.rpbDim
         else:
-            rpbDim = 0
+            self.rpbDim = 0
+            self.rpbDimPerHead = 0
 
         ################################################################################
         # Build CConv Mode
@@ -310,16 +444,16 @@ class AttentionMechanismLayer(torch.nn.Module):
         if self.cConvMode:
             verbosePrint(f'Building continuous Convolution Mode (cConv)...', verbose, separator=True)
 
-            verbosePrint(f'Input Basis Shape: {rpbDim}', verbose)
+            verbosePrint(f'Input Basis Shape: {self.rpbDim}', verbose)
             verbosePrint(f'Input Key/Query Shape: {self.latent_dim}', verbose)
             verbosePrint(f'Number of Heads: {self.num_heads} / Features per Head: {self.transformer_features // self.num_heads}', verbose)
 
             if self.encodeTokensShared:
-                W_wqk = torch.nn.Linear(rpbDim, self.latent_dim * self.transformer_features * self.num_heads, bias=False)
+                W_wqk = torch.nn.Linear(self.rpbDimPerHead, self.latent_dim * self.transformer_features * self.num_heads, bias=False)
                 self.W_wq = self.W_wk = W_wqk
             else:
-                self.W_wq = torch.nn.Linear(rpbDim, self.latent_dim * self.transformer_features * self.num_heads, bias=False)
-                self.W_wk = torch.nn.Linear(rpbDim, self.latent_dim * self.transformer_features * self.num_heads, bias=False)
+                self.W_wq = torch.nn.Linear(self.rpbDimPerHead, self.latent_dim * self.transformer_features * self.num_heads, bias=False)
+                self.W_wk = torch.nn.Linear(self.rpbDimPerHead, self.latent_dim * self.transformer_features * self.num_heads, bias=False)
 
         ################################################################################
         #                     Build Attention Score Mechanism                          #
@@ -327,6 +461,9 @@ class AttentionMechanismLayer(torch.nn.Module):
 
         verbosePrint(f'Building Attention Score Mechanism...', verbose, separator=True)
         attentionInputDim = self.transformer_features #if self.encodeTokens else self.latent_dim
+        # if self.cConvMode:
+            # attentionInputDim = self.rpbDimPerHead
+            # verbosePrint(f'\tIn cConv mode the attention input dimension is set to the rpb dimension per head: {attentionInputDim}', verbose)
         if self.attentionMechanism == 'dot':
             verbosePrint(f'\tUsing dot product attention', verbose)
             if self.attentionScaling:
@@ -340,13 +477,13 @@ class AttentionMechanismLayer(torch.nn.Module):
         elif self.attentionMechanism == 'mlp':
             verbosePrint(f'\tUsing MLP attention', verbose)
 
-            self.attentionScoreMLPDict['inputFeatures'] = 2 * attentionInputDim + rpbDim
+            self.attentionScoreMLPDict['inputFeatures'] = 2 * attentionInputDim + (self.rpbDimPerHead if not self.relativePositionBiasAfterAttention and not self.cConvMode else 0)
             self.attentionScoreMLPDict['output'] = 1
             verbosePrint(f'\t\tShape: {self.attentionScoreMLPDict["inputFeatures"]} -> {self.attentionScoreMLPDict["output"]}', verbose)
             self.attentionScoreMLP = buildMLPwDict(self.attentionScoreMLPDict, verbose, verbosePrefix='\t\t')
         elif self.attentionMechanism == 'linear':
             verbosePrint(f'\tUsing linear attention', verbose)
-            attentionInputShape = 2 * attentionInputDim + rpbDim
+            attentionInputShape = 2 * attentionInputDim + (self.rpbDimPerHead if not self.relativePositionBiasAfterAttention and not self.cConvMode else 0)
             verbosePrint(f'\t\tShape: {attentionInputShape} -> {attentionInputDim}', verbose)
             self.attentionScoreLinear = nn.Linear(attentionInputShape, 1, bias=False)
 
@@ -423,29 +560,25 @@ class AttentionMechanismLayer(torch.nn.Module):
                 raise ValueError('edge_attr must be provided if relativePositionBias is True')
             if self.relativePositionBiasScaledPositions:
                 raise NotImplementedError('relativePositionBiasScaledPositions is not implemented yet')
-            if self.relativePositionBiasBaseEncoding:
-                rpbEncoded = self.rpbBasisEncoder(edge_attr)
-                verbosePrint(f'\t\tRPB basis function encoding output shape: {rpbEncoded.shape}', self.verbose)
-            else:
-                rpbEncoded = edge_attr
-                verbosePrint(f'\t\tUsing raw positions for RPB, shape: {rpbEncoded.shape}', self.verbose)
-            rpbEncoded = rpbEncoded.view(-1, self.rpbFlatInputDim)
-            verbosePrint(f'\t\tRPB flattened input shape: {rpbEncoded.shape}', self.verbose)
-            if self.relativePositionBiasEncoder:    
-                rpbFeatures = self.rpbEncoder(rpbEncoded)
-            else:
-                rpbFeatures = rpbEncoded
+            rpbFeatures = self.rpbEncoder(edge_attr)
+            verbosePrint(f'\t\tRPB basis function encoding output shape: {rpbFeatures.shape}', self.verbose)
+
             verbosePrint(f'\t\tRPB encoded features shape: {rpbFeatures.shape} [E, H * T]', self.verbose)
             if self.relativePositionBiasAfterAttention:
                 rpbFeatures = rpbFeatures.view(1, -1, self.num_heads)
                 verbosePrint(f'\t\tRPB reshaped features shape: {rpbFeatures.shape} [1, E, H]', self.verbose)
             else:
-                if self.relativePositionBiasEncoder:
-                    rpbFeatures = rpbFeatures.view(1, -1, self.num_heads, self.relativePositionBiasDim//self.num_heads)
-                    verbosePrint(f'\t\tRPB reshaped features shape: {rpbFeatures.shape} [1, E, H, T]', self.verbose)
+                if self.relativePositionBiasSplit:
+                    rpbDimPerHead = self.rpbDimPerHead
+                    rpbFeatures = rpbFeatures.view(-1, self.num_heads, rpbDimPerHead)
+                    verbosePrint(f'\t\tRPB reshaped features shape: {rpbFeatures.shape} [E, H, {rpbDimPerHead}]', self.verbose)
                 else:
-                    rpbFeatures = rpbFeatures.view(1, -1, 1, self.relativePositionBiasDim)
-                    verbosePrint(f'\t\tRPB reshaped features shape: {rpbFeatures.shape} [1, E, 1, D]', self.verbose) # Apply the same input to all heads
+                    rpbFeatures = rpbFeatures.view(-1, 1, self.rpbDim)
+                    verbosePrint(f'\t\tRPB reshaped features shape: {rpbFeatures.shape} [E, 1, {self.rpbDim}]', self.verbose)
+                    if not self.cConvMode:
+                        rpbFeatures = rpbFeatures.repeat(1, self.num_heads, 1)
+                        verbosePrint(f'\t\tRPB repeated features shape: {rpbFeatures.shape} [E, H, {self.rpbDim}]', self.verbose)
+
         else:
             rpbFeatures = None
 
@@ -485,16 +618,16 @@ class AttentionMechanismLayer(torch.nn.Module):
 
             verbosePrint(f'Input Token Shape [current ]: {queryTokens.shape} [B {batch_size} x N {num_nodes_current} x D {latentSpaceSize}]', self.verbose)
             verbosePrint(f'Input Token Shape [neighbor]: {keyTokens.shape} [B {batch_size} x N {num_nodes_neighbor} x D {latentSpaceSize}]', self.verbose)
-            verbosePrint(f'Input Token Shape [RBP]: {rpbFeatures.shape} [B {batch_size} x N {num_nodes_current} x D {self.relativePositionBiasDim}]', self.verbose)
+            verbosePrint(f'Input Token Shape [RBP]: {rpbFeatures.shape} [B {batch_size} x E {edge_attr.shape[0]} x D {self.relativePositionBiasDim}]', self.verbose)
 
-            rpb = rpbFeatures.flatten(-2).squeeze(0)
+            rpb = rpbFeatures.squeeze(1)
             w_q = self.W_wq(rpb)  # Shape: [num_edges, latent_dim * transformer_features * num_heads]
             w_k = self.W_wk(rpb)  # Shape: [num_edges, latent_dim * transformer_features * num_heads]
             verbosePrint(f'\tW_q shape: {w_q.shape} [E, L * T * H]', self.verbose)
             verbosePrint(f'\tW_k shape: {w_k.shape} [E, L * T * H]', self.verbose)
 
-            w_q = w_q.view(-1, self.transformer_features * self.num_heads, self.latent_dim)  # Shape: [num_edges, H * T, L]
-            w_k = w_k.view(-1, self.transformer_features * self.num_heads, self.latent_dim)  # Shape: [num_edges, H * T, L]
+            w_q = w_q.view(-1, self.rpbDim, self.latent_dim)  # Shape: [num_edges, H * T, L]
+            w_k = w_k.view(-1, self.rpbDim, self.latent_dim)  # Shape: [num_edges, H * T, L]
 
             node_i = queryTokens[0, rows, :]  # Shape: [num_edges, latent_dim]
             node_j = keyTokens[0, cols, :]
@@ -506,8 +639,11 @@ class AttentionMechanismLayer(torch.nn.Module):
             verbosePrint(f'\tW_k reshaped shape: {w_k.shape} [E, H * T, L]', self.verbose)
 
 
-            Q_i = torch.einsum('el, efl -> ef', node_i, w_q).view(batch_size, -1, self.num_heads, self.transformer_features)  # Shape: [B, E, H, F]
-            K_j = torch.einsum('el, efl -> ef', node_j, w_k).view(batch_size, -1, self.num_heads, self.transformer_features)  # Shape: [B, E, H, F]
+            Q_i = torch.einsum('el, efl -> ef', node_i, w_q).view(-1, self.num_heads, self.transformer_features)  # Shape: [B, E, H, F]
+            K_j = torch.einsum('el, efl -> ef', node_j, w_k).view(-1, self.num_heads, self.transformer_features)  # Shape: [B, E, H, F]
+            Q_i = Q_i.permute(1, 0, 2)  # Shape: [H, E, F]
+            K_j = K_j.permute(1, 0, 2)  # Shape: [H, E, F]
+
 
 
         ################################################################################
@@ -520,14 +656,16 @@ class AttentionMechanismLayer(torch.nn.Module):
         verbosePrint(f'Computing Attention', self.verbose)
 
         if self.attentionMechanism == 'dot':
-            if not self.relativePositionBiasAfterAttention and self.relativePositionBias:
-                raise NotImplementedError('Relative Position Bias before attention not possible for dot product attention')
+            if not self.cConvMode:
+                if not self.relativePositionBiasAfterAttention and self.relativePositionBias:
+                    raise NotImplementedError('Relative Position Bias before attention not possible for dot product attention')
 
             attentionScores = (Q_i * K_j).sum(dim=-1)  # Shape: [H, num_edges]
             verbosePrint(f'\tDot Product Attention Scores shape: {attentionScores.shape} [H {self.num_heads} x E {num_edges}]', self.verbose)
         elif self.attentionMechanism == 'scaled_dot':
-            if not self.relativePositionBiasAfterAttention and self.relativePositionBias:
-                raise NotImplementedError('Relative Position Bias before attention not possible for dot product attention')
+            if not self.cConvMode:
+                if not self.relativePositionBiasAfterAttention and self.relativePositionBias:
+                    raise NotImplementedError('Relative Position Bias before attention not possible for dot product attention')
 
             attentionScoresProduct = (Q_i * K_j)  # Shape: [H, num_edges]
             attentionScores = self.attentionScaling(attentionScoresProduct).sum(-1)  # Shape: [H, num_edges]
@@ -535,15 +673,16 @@ class AttentionMechanismLayer(torch.nn.Module):
         elif self.attentionMechanism == 'mlp':
             verbosePrint(f'\tMLP Attention Input shape: {Q_i.shape} [H {self.num_heads} x E {num_edges} x F {self.transformer_features}]', self.verbose)
             attentionInput = torch.cat([Q_i, K_j], dim=-1)  # Shape: [H, num_edges, 2*F]
-            if self.relativePositionBias and not self.relativePositionBiasAfterAttention:
-                verbosePrint(f'\tAdding Relative Position Bias before Attention', self.verbose)
+            if not self.cConvMode:
+                if self.relativePositionBias and not self.relativePositionBiasAfterAttention:
+                    verbosePrint(f'\tAdding Relative Position Bias before Attention', self.verbose)
 
-                # if relativePositionBiasEncoder is set to false, the inputs are not encoded per head, so we need to repeat them for each head
-                if not self.relativePositionBiasEncoder:
-                    rpbFeatures = rpbFeatures.repeat(1, 1, self.num_heads, 1)  # Shape: [1, E, H, D_rpb]
-                rpbFeatures = rpbFeatures.squeeze(0)
-                verbosePrint(f'\t\tRPB Features shape: {rpbFeatures.shape} [E, H, T]', self.verbose)
-                attentionInput = torch.cat([attentionInput, rpbFeatures.permute(1,0,2)], dim=-1)  # Shape: [H, num_edges, 2*F + D_rpb]
+                    # if relativePositionBiasEncoder is set to false, the inputs are not encoded per head, so we need to repeat them for each head
+                    # if not self.relativePositionBiasEncoder:
+                        # rpbFeatures = rpbFeatures.repeat(1, 1, self.num_heads, 1)  # Shape: [1, E, H, D_rpb]
+                    # rpbFeatures = rpbFeatures.squeeze(0)
+                    verbosePrint(f'\t\tRPB Features shape: {rpbFeatures.shape} [E, H, T]', self.verbose)
+                    attentionInput = torch.cat([attentionInput, rpbFeatures.permute(1,0,2)], dim=-1)  # Shape: [H, num_edges, 2*F + D_rpb]
 
             verbosePrint(f'\tAttention Input shape: {attentionInput.shape} [H {self.num_heads} x E {num_edges} x (2*F + D_rpb)]', self.verbose)
 
@@ -552,18 +691,19 @@ class AttentionMechanismLayer(torch.nn.Module):
         elif self.attentionMechanism == 'linear':
             verbosePrint(f'\tLinear Attention Input shape: {Q_i.shape} [H {self.num_heads} x E {num_edges} x F {self.transformer_features}]', self.verbose)
             attentionInput = torch.cat([Q_i, K_j], dim=-1)  # Shape: [H, num_edges, 2*F]
-            if self.relativePositionBias and not self.relativePositionBiasAfterAttention:
-                verbosePrint(f'\tAdding Relative Position Bias before Attention', self.verbose)
+            if not self.cConvMode:
+                if self.relativePositionBias and not self.relativePositionBiasAfterAttention:
+                    verbosePrint(f'\tAdding Relative Position Bias before Attention', self.verbose)
 
 
-                # if relativePositionBiasEncoder is set to false, the inputs are not encoded per head, so we need to repeat them for each head
-                if not self.relativePositionBiasEncoder:
-                    rpbFeatures = rpbFeatures.repeat(1, 1, self.num_heads, 1)  # Shape: [1, E, H, D_rpb]
-                rpbFeatures = rpbFeatures.squeeze(0)
-                verbosePrint(f'\t\tRPB Features shape: {rpbFeatures.shape} [E, H,  T]', self.verbose)
+                    # if relativePositionBiasEncoder is set to false, the inputs are not encoded per head, so we need to repeat them for each head
+                    # if not self.relativePositionBiasEncoder:
+                        # rpbFeatures = rpbFeatures.repeat(1, 1, self.num_heads, 1)  # Shape: [1, E, H, D_rpb]
+                    # rpbFeatures = rpbFeatures.squeeze(0)
+                    verbosePrint(f'\t\tRPB Features shape: {rpbFeatures.shape} [E, H,  T]', self.verbose)
 
-                
-                attentionInput = torch.cat([attentionInput, rpbFeatures.permute(1,0,2)], dim=-1)  # Shape: [H, num_edges, 2*F + D_rpb]
+                    
+                    attentionInput = torch.cat([attentionInput, rpbFeatures.permute(1,0,2)], dim=-1)  # Shape: [H, num_edges, 2*F + D_rpb]
 
             verbosePrint(f'\tAttention Input shape: {attentionInput.shape} [H {self.num_heads} x E {num_edges} x (2*F + D_rpb)]', self.verbose)
 
