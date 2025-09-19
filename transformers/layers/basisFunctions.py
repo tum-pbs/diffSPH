@@ -379,33 +379,3 @@ def basisEncoderLayer(edgeLengths, basisTerms : int, basisFunction : str = 'ffou
     else:
         raise ValueError(f'Unknown mode: {mode}')
     
-class BasisEncoder(nn.Module):
-    def __init__(self,
-                 dim: int,
-                 basisTerms : int, 
-                 basisFunction : str = 'ffourier', 
-                 mode : str = 'cat'):
-        super(BasisEncoder, self).__init__()
-
-        self.basisTerms = basisTerms
-        self.basisFunction = basisFunction
-        self.mode = mode
-        self.dim = dim
-
-        self.outputShape = None
-        if mode == 'cat':
-            self.outputShape = (basisTerms * dim,)
-        elif mode == 'sum' or mode == 'prod':
-            self.outputShape = (basisTerms,)
-        elif mode == 'outer':
-            if dim != 2:
-                raise ValueError('Outer product is only supported for 2D inputs')
-            self.outputShape = (basisTerms * basisTerms,)
-        elif mode in ['i','j','k']:
-            if dim < 1 or dim > 3:
-                raise ValueError('i,j,k modes are only supported for 1D, 2D and 3D inputs')
-            self.outputShape = (basisTerms,)
-        else:
-            raise ValueError(f'Unknown mode: {mode}')
-    def forward(self, edgeLengths):
-        return basisEncoderLayer(edgeLengths, self.basisTerms, self.basisFunction, self.mode)

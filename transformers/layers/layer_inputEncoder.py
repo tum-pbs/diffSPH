@@ -12,7 +12,8 @@ from typing import Optional, Union, Tuple
  
 
 from .activation import getActivationLayer
-from .basisFunctions import basisEncoderLayer, BasisEncoder
+from .basisFunctions import basisEncoderLayer
+from .layer_positionEncoder import BasisEncoder
 from .networkUtil import verbosePrint
 from .sparse import buildSparseTensor
 from .softmax import softmax
@@ -130,6 +131,8 @@ class InputEncodeLayer(torch.nn.Module):
             numberOfParameters = sum(p.numel() for p in self.inputEncoder.parameters())
             verbosePrint(f'\t\tNumber of parameters in input encoder MLP: {numberOfParameters}', self.verbose)
 
+        self.apbEncoder = None
+        self.apbBasisEncoderOutputDim = None
         # Absolute position bias encoding
         if self.absolutePositionBias:   
             verbosePrint(f'\tAbsolute position bias (APB) encoding:', self.verbose, separator=True)
@@ -139,47 +142,25 @@ class InputEncodeLayer(torch.nn.Module):
                 verbosePrint(f'\t\tUsing multiplicative APB', self.verbose)
             else:
                 verbosePrint(f'\t\tUsing additive APB', self.verbose)
-            if self.absolutePositionBiasBaseEncoding:
-                verbosePrint(f'\t\tUsing basis function encoding for APB', self.verbose)
-                self.apbBasisEncoder = BasisEncoder(
-                    basisTerms=self.absolutePositionBiasBaseTerms,
-                    basisFunction=self.absolutePositionBiasBaseFunction,
-                    mode=self.absolutePositionBiasBaseMode,
-                    dim=self.spatial_dim,
-                )
-                self.apbBasisShape = self.apbBasisEncoder.outputShape
-                verbosePrint(f'\t\tAPB basis function encoding output shape: {self.apbBasisShape}', self.verbose)
-                self.apbInputDim = self.apbBasisShape
-            else:
-                verbosePrint(f'\t\tUsing raw positions for APB', self.verbose)
-                self.apbInputDim = (self.spatial_dim,)
-            # Input Dim might be multi dimensional, needs to be flattened before running through the input Encoder
-            self.apbFlatInputDim = self.apbInputDim
-            if len(self.apbInputDim) > 0:
-                self.apbFlatInputDim = 1
-                for s in self.apbInputDim:
-                    self.apbFlatInputDim *= s
+            
+            self.apbEncoder = BasisEncoder(
+                spatial_dim = self.spatial_dim,
+                basis_terms = self.absolutePositionBiasBaseTerms,
+                basis_function = self.absolutePositionBiasBaseFunction,
+                skip_basis = not self.absolutePositionBiasBaseEncoding,
+                mode = self.absolutePositionBiasBaseMode,
+                project_out = True,
+                out_dim = self.output_dim,
+                project_linear = self.absolutePositionBiasLinear,
+                project_mlp_properties = self.absolutePositionBiasMLPDict,
+                
+                verbose = self.verbose, 
+                verbosePrefix = '\t\t'
+            )
+            self.apbBasisEncoderOutputDim = self.apbEncoder.outputShape
 
-            if self.absolutePositionBiasLinear:
-                verbosePrint(f'\t\tUsing linear layer for APB encoding', self.verbose)
-                self.apbEncoder = nn.Linear(self.apbFlatInputDim, self.output_dim, bias=False)
-            else:
-                verbosePrint(f'\t\tUsing MLP for APB encoding', self.verbose)
-                if self.absolutePositionBiasMLPDict is None:
-                    raise ValueError('absolutePositionBiasMLPDict must be provided if absolutePositionBiasLinear is False')
-                if self.absolutePositionBiasMLPDict is not None:
-                    self.apbEncoder = buildMLPwDict({
-                        'inputFeatures': self.apbFlatInputDim,
-                        'output': self.output_dim,
-                        **self.absolutePositionBiasMLPDict
-                    }, verbose = verbose, verbosePrefix='\t\t')
-                else:
-                    self.apbEncoder = buildMLPwDict({
-                        'inputFeatures': self.apbFlatInputDim,
-                        'output': self.output_dim,
-                    }, verbose = verbose, verbosePrefix='\t\t')
-                numberOfParameters = sum(p.numel() for p in self.apbEncoder.parameters())
-                verbosePrint(f'\t\tNumber of parameters in APB encoder MLP: {numberOfParameters}', self.verbose)
+            numberOfParameters = sum(p.numel() for p in self.apbEncoder.parameters())
+            verbosePrint(f'\t\tNumber of parameters in APB encoder MLP: {numberOfParameters}', self.verbose)
 
         verbosePrint(f'Done initializing Input Encode Layer.', self.verbose, separator=True)
         
