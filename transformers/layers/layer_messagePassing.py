@@ -4,6 +4,8 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 
+from .windows import getWindowFunction
+
 try:
     import torch_geometric
     from torch_geometric.utils import scatter, segment
@@ -15,6 +17,7 @@ from typing import Optional, Union, Tuple
 
 from .activation import getActivationLayer
 from .basisFunctions import basisEncoderLayer
+from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
 from .networkUtil import verboseBannerPrint
 from .networkUtil import verbosePrint
 from .sparse import buildSparseTensor
@@ -155,7 +158,7 @@ For generalization we treat edge attributes, i.e., features of edges, and spatia
 
 - window_function: whether to use a window function based on spatial relations, default: False
 - window_function_type: type of window function
-- window_function_as_input: whether to use the window function as an additional input to the message generation (True) or to scale the messages (False), default: False
+- gnn_window_function: whether to use the window function as an additional input to the message generation (True) or to scale the messages (False), default: False
 
 - gnn_node_i_features: whether to include the features of the target node (i) in the message generation, default: False
 - gnn_node_j_features: whether to include the features of the source node (j) in the message generation, default: True
@@ -202,9 +205,11 @@ class MessagePassingLayer(torch.nn.Module):
                 rpb_proj_mlp_dict: Optional[dict] = None,
 
                 window_function: bool = False,
-                window_function_type: str = 'gaussian', # 'gaussian', 'cosine', 'tanh'
-                window_function_as_input: bool = False,
+                window_function_type: str = 'cubicSpline', # 'gaussian', 'cosine', 'tanh'
+                window_function_normalize: bool = False,
+                window_function_as_gate: bool = True,
 
+                gnn_window_function: bool = False,
                 gnn_node_i_features: bool = False,
                 gnn_node_j_features: bool = True,
                 gnn_node_sum_features: bool = False,
@@ -215,8 +220,16 @@ class MessagePassingLayer(torch.nn.Module):
                 gnn_spatial_distance: bool = False,
                 gnn_mlp_dict: Optional[dict] = None,     
 
-                transformer_edge_gating: bool = False,
-                transformer_edge_gating_mode: str = 'add', # 'add', 'mul'
+                # Each edge gate is realized by using a linear projection to compute a gating value with an optional activation
+                edge_gating: bool = False,
+                edge_gating_repeat: bool = False, # whether to repeat the gating values across heads (True) or have a separate gating value for each head (False)
+                edge_gating_mode: str = 'multiply', # 'multiply', 'add'
+                edge_gating_edge_vectors: bool = False, 
+                edge_gating_edge_features: bool = False, 
+                edge_gating_rpb: bool = False, 
+                edge_gating_activation: Optional[str] = 'sigmoid', # 'sigmoid', 'tanh', 'celu', None
+
+                message_activation: Optional[str] = None,
 
                 multiHeadAggregation: str = 'concat', # 'mean', 'concat'
                 verbose: bool = False
@@ -244,9 +257,21 @@ class MessagePassingLayer(torch.nn.Module):
         self.output_proj_linear = output_proj_linear
         self.output_proj_mlp_dict = output_proj_mlp_dict if output_proj_mlp_dict is not None else getDefaultMLPDict()
         self.skipConnections = skipConnections
+
+        if message_activation is None:
+            self.activation = nn.Identity()
+            self.activationName = 'identity'
+        else:
+            self.activationName = message_activation.split('(')[0] if '(' in message_activation else message_activation
+            activationArguments = () if '(' not in message_activation else message_activation[message_activation.index('(')+1:message_activation.index(')')].split(',')
+            activationArguments = tuple([float(arg) for arg in activationArguments])
+            self.activation = getActivationLayer(self.activationName, *activationArguments)
+
+
         verbosePrint(f'Architecture:\n\tsplit_across_heads: {split_across_heads}, use_input_proj: {use_input_proj}, use_output_proj: {use_output_proj}, message_mode: {message_mode}', verbose, separator=True)
         verbosePrint(f'\tinput_proj_linear: {input_proj_linear}, input_proj_mlp_dict: {self.input_proj_mlp_dict}', verbose)
         verbosePrint(f'\toutput_proj_linear: {output_proj_linear}, output_proj_mlp_dict: {self.output_proj_mlp_dict} multiHeadAggregation: {self.multiHeadAggregation}, skipConnections: {self.skipConnections}', verbose)
+        verbosePrint(f'\tmessage_activation: {self.activationName}', verbose)
 
         self.relative_position_bias = relative_position_bias
         self.rpb_base_encoding = rpb_base_encoding
@@ -264,8 +289,11 @@ class MessagePassingLayer(torch.nn.Module):
 
         self.window_function = window_function
         self.window_function_type = window_function_type
-        self.window_function_as_input = window_function_as_input
-        verbosePrint(f'Window Function:\n\twindow_function: {window_function}, window_function_type: {window_function_type}, window_function_as_input: {window_function_as_input}', verbose, separator=True)
+        self.window_function_normalize = window_function_normalize
+        self.gnn_window_function = gnn_window_function
+        self.window_function_as_gate = window_function_as_gate
+        verbosePrint(f'Window Function:\n\twindow_function: {window_function}, window_function_type: {window_function_type}, gnn_window_function: {gnn_window_function}, window_function_as_gate: {window_function_as_gate}', verbose, separator=True)
+
 
         self.gnn_node_i_features = gnn_node_i_features
         self.gnn_node_j_features = gnn_node_j_features
@@ -280,9 +308,24 @@ class MessagePassingLayer(torch.nn.Module):
         verbosePrint(f'\tgnn_edge_features: {gnn_edge_features}, gnn_attention_features: {gnn_attention_features}, gnn_spatial_features: {gnn_spatial_features}, gnn_spatial_distance: {gnn_spatial_distance}', verbose)
         verbosePrint(f'\tgnn_mlp_dict: {self.gnn_mlp_dict}', verbose)
 
-        self.transformer_edge_gating = transformer_edge_gating
-        self.transformer_edge_gating_mode = transformer_edge_gating_mode
-        verbosePrint(f'Transformer Edge Gating:\n\ttransformer_edge_gating: {transformer_edge_gating}, transformer_edge_gating_mode: {transformer_edge_gating_mode}', verbose, separator=True)
+        self.edge_gating = edge_gating
+        self.edge_gating_repeat = edge_gating_repeat
+
+        if edge_gating_activation is None:
+            self.gatingActivation = nn.Identity()
+            self.gatingActivationName = 'identity'
+        else:
+            self.gatingActivationName = edge_gating_activation.split('(')[0] if '(' in edge_gating_activation else edge_gating_activation
+            activationArguments = () if '(' not in edge_gating_activation else edge_gating_activation[edge_gating_activation.index('(')+1:edge_gating_activation.index(')')].split(',')
+            activationArguments = tuple([float(arg) for arg in activationArguments])
+            self.gatingActivation = getActivationLayer(self.gatingActivationName, *activationArguments)
+        
+        self.edge_gating_edge_vectors = edge_gating_edge_vectors
+        self.edge_gating_edge_features = edge_gating_edge_features
+        self.edge_gating_rpb = edge_gating_rpb
+        self.edge_gating_mode = edge_gating_mode
+
+        verbosePrint(f'Edge Gating:\n\tedge_gating: {self.edge_gating}, edge_gating_repeat: {self.edge_gating_repeat}, edge_gating_edge_vectors: {self.edge_gating_edge_vectors}, edge_gating_edge_features: {self.edge_gating_edge_features}, edge_gating_rpb: {self.edge_gating_rpb}\n\tedge_gating_activation: {self.gatingActivationName}', verbose, separator=True)
 
         self.verbose = verbose
 
@@ -332,11 +375,57 @@ class MessagePassingLayer(torch.nn.Module):
             verbosePrint(f'\tSplit across heads: {self.rpb_split}', verbose)
             verbosePrint(f'\tRelative position bias dimension: {self.rpb_dim}', verbose)
 
-            raise NotImplementedError('Relative Position Bias not implemented yet')
+            ################################################################################
+            # Start by collecting all properties for the RPB
+            ################################################################################
 
+            spatial_dim = self.spatial_dim
+
+            basis_terms = self.rpb_base_terms
+            basis_function = self.rpb_base_basis
+            mode = self.rpb_base_mode
+
+            skip_basis = not self.rpb_base_encoding
+            split_across_heads = self.rpb_split
+
+            project_out = self.rpb_proj
+            project_linear = self.rpb_proj_linear
+            project_mlp_dict = self.rpb_proj_mlp_dict
+            out_dim = self.rpb_dim
+
+            basisEncoderOutputShape = computeBasisEncoderOutputShape(
+                spatial_dim=spatial_dim,
+                basis_terms=basis_terms,
+                basis_function=basis_function,
+                skip_basis=skip_basis,
+                mode=mode,
+                project_out=project_out,
+                out_dim=out_dim,
+                verbose=False
+            )
+            verbosePrint(f'\t\trpb basis function encoding output shape: {basisEncoderOutputShape}', self.verbose)
+            out_dim = basisEncoderOutputShape
+            
+            self.rpbEncoder = BasisEncoder(
+                spatial_dim=spatial_dim,
+                basis_terms=basis_terms,
+                basis_function=basis_function,
+                skip_basis=skip_basis,
+                mode=mode,
+                
+                out_dim=out_dim,
+                
+                project_mlp_properties=project_mlp_dict,
+                project_linear=project_linear,
+                project_out= project_out,
+
+                verbose=verbose, verbosePrefix='\t\t',
+            )
+            self.rpbDim = self.rpbEncoder.outputShape
+            verbosePrint(f'\trpb encoder output shape: {self.rpbDim}', verbose)
         else:
+            self.rpbDim = 0
             self.rpbEncoder = None
-            self.rpbEncodedDim = 0
             verbosePrint(f'Relative position bias disabled', verbose)
             
 
@@ -346,7 +435,7 @@ class MessagePassingLayer(torch.nn.Module):
             if self.spatial_dim <= 0:
                 raise ValueError(f'spatial_dim must be > 0 if window_function is True, got spatial_dim={self.spatial_dim}')
             verbosePrint(f'\tWindow function type: {self.window_function_type}', verbose)
-            if self.window_function_as_input:
+            if self.gnn_window_function:
                 verbosePrint(f'\tUsing window function as input to message generation', verbose)
                 self.windowDim = 1
             else:
@@ -388,6 +477,51 @@ class MessagePassingLayer(torch.nn.Module):
                 raise ValueError(f'node_feature_dim must be equal to output_dim if use_output_proj is False, got node_feature_dim={self.node_feature_dim}, output_dim={self.output_dim}')
             self.outputProjection = nn.Identity()
 
+        verboseBannerPrint('Building Edge Gating', verbose)
+        if self.edge_gating:
+            verbosePrint(f'Edge gating enabled', verbose)
+            
+            if self.edge_gating_repeat:
+                verbosePrint(f'\tRepeating gating values across heads', verbose)
+                gating_output_dim = self.transformer_features
+                gating_heads = 1
+            else:
+                verbosePrint(f'\tUsing separate gating values for each head', verbose)
+                gating_output_dim = self.transformer_features * self.multi_heads
+                gating_heads = self.multi_heads
+
+            if self.edge_gating_edge_features and self.edgeFeatureSize <= 0:
+                raise ValueError(f'edgeFeatureSize must be > 0 if edge_gating_edge_features is not "none", got edgeFeatureSize={self.edgeFeatureSize}')
+            if self.edge_gating_edge_vectors  and self.spatial_dim <= 0:
+                raise ValueError(f'spatial_dim must be > 0 if edge_gating_edge_vectors is not "none", got spatial_dim={self.spatial_dim}')
+            if self.edge_gating_rpb  and self.rpbEncoder is None:
+                raise ValueError(f'rpb must be enabled if edge_gating_rpb is not "none", got rpbDim={self.rpbDim}')
+
+            if self.edge_gating_edge_features:
+                verbosePrint(f'\tUsing edge features for gating with method: {self.edge_gating_edge_features}', verbose)
+                self.edge_gating_W_edge_features = nn.Linear(self.edgeFeatureSize, gating_output_dim)
+                verbosePrint(f'\t\tShape: {self.edgeFeatureSize} -> {gating_output_dim}', verbose)
+            else:
+                self.edge_gating_W_edge_features = None
+            if self.edge_gating_edge_vectors:
+                verbosePrint(f'\tUsing edge vectors for gating with method: {self.edge_gating_edge_vectors}', verbose)
+                self.edge_gating_W_edge_vectors = nn.Linear(self.spatial_dim, gating_output_dim)
+                verbosePrint(f'\t\tShape: {self.spatial_dim} -> {gating_output_dim}', verbose)
+            else:
+                self.edge_gating_W_edge_vectors = None
+            if self.edge_gating_rpb:
+                verbosePrint(f'\tUsing rpb for gating with method: {self.edge_gating_rpb}', verbose)
+                self.edge_gating_W_rpb = nn.Linear(self.rpbDim, gating_output_dim)
+                verbosePrint(f'\t\tShape: {self.rpbDim} -> {gating_output_dim}', verbose)
+            else:
+                self.edge_gating_W_rpb = None
+            verbosePrint(f'\tGating activation: {self.gatingActivationName}', verbose)
+        else:
+            verbosePrint(f'Edge gating disabled', verbose)
+            self.edge_gating_W_edge_features = None
+            self.edge_gating_W_edge_vectors = None
+            self.edge_gating_W_rpb = None
+
         verboseBannerPrint('MessagePassingLayer Built', verbose)
 
 
@@ -402,7 +536,9 @@ class MessagePassingLayer(torch.nn.Module):
                 attention_values: Optional[Tensor] = None,  # Shape [H, nE] or [nE]
                 S_k: Optional[Tensor] = None                # Shape [nE]
                 ) -> Tensor:  # Output shape [B, nQ, O] or [nQ, O]
-       
+        ################################################################################
+        #                             Validate input shapes                            #
+        ################################################################################
         numQueryTokens = queryTokens.shape[-2]
         numKeyTokens   = keyTokens.shape[-2]
         numEdges = edge_index.shape[-1]
@@ -452,7 +588,9 @@ class MessagePassingLayer(torch.nn.Module):
             'L': self.latent_dim,
             'T': self.transformer_features,
             'I': self.node_feature_dim,
-            'O': self.output_dim
+            'O': self.output_dim,
+            'RPB': self.rpbDim,
+            'G': self.transformer_features if self.edge_gating_repeat else self.transformer_features * self.multi_heads
         }
 
         verbosePrint(f'Input Shapes:', self.verbose)
@@ -466,7 +604,15 @@ class MessagePassingLayer(torch.nn.Module):
         verbosePrint(f'\tS_k: {S_k.shape if S_k is not None else None}', self.verbose)
 
         checkShapes = False
-        # Implement the forward pass logic here
+        
+        ################################################################################
+        #                             Begin Forward Pass                             #
+        ################################################################################
+
+
+        ##############################################################################
+        #                            Step 1: Input Projection                         #
+        ##############################################################################
         verboseBannerPrint('Projection Step', self.verbose)
         checkTensorShape(queryTokens, ['B', 'nQ', 'I'], shape_dict, checkShapes, 'queryTokens')
         checkTensorShape(keyTokens, ['B', 'nK', 'I'], shape_dict, checkShapes, 'keyTokens')
@@ -505,6 +651,9 @@ class MessagePassingLayer(torch.nn.Module):
         checkTensorShape(queryLatent, ['H', 'B*nQ', 'T'], shape_dict, checkShapes, 'queryLatent multi-head final')
         checkTensorShape(keyLatent, ['H', 'B*nK', 'T'], shape_dict, checkShapes, 'keyLatent multi-head final')
 
+        ##############################################################################
+        #                        Step 2: Gather Node Features                         #
+        ##############################################################################
         verboseBannerPrint('Gather Step', self.verbose)
 
         f_i = queryLatent[:, rows, :]  # [h, ne, t]
@@ -515,6 +664,48 @@ class MessagePassingLayer(torch.nn.Module):
         checkTensorShape(f_i, ['H', 'nE', 'T'], shape_dict, checkShapes, 'f_i')
         checkTensorShape(V_j, ['H', 'nE', 'T'], shape_dict, checkShapes, 'V_j')
 
+        ##############################################################################
+        #                    Step 3: Edge Feature and Vector Processing                #
+        ##############################################################################
+        verboseBannerPrint('Edge Feature Processing Step', self.verbose)
+        if self.rpbEncoder is not None:
+            verbosePrint('Encoding edge vectors with RPB encoder', self.verbose)
+            encodedEdges = self.rpbEncoder(edge_vector)
+            verbosePrint(f'Encoded edge vectors: {encodedEdges.shape} [nE, RPB]', self.verbose)
+            checkTensorShape(encodedEdges, ['nE', 'RPB'], shape_dict, checkShapes, 'encodedEdges')
+        else:
+            encodedEdges = None
+            verbosePrint('No RPB encoder, skipping edge vector encoding', self.verbose)
+
+        if self.window_function:            
+            verboseBannerPrint(f'Applying Window Function...', self.verbose)
+            edgeLengths = torch.linalg.norm(edge_vector, dim=-1)
+            verbosePrint(f'Edge lengths min: {edgeLengths.min().item():.4f}, max: {edgeLengths.max().item():.4f}, mean: {edgeLengths.mean().item():.4f}, std: {edgeLengths.std().item():.4f}', self.verbose)
+            windowScaling = getWindowFunction(self.window_function_type, norm= None)(torch.linalg.norm(edge_vector, dim=-1)) 
+            verbosePrint(f'\tWindow function shape: {windowScaling.shape} [E]', self.verbose)      
+            if self.window_function_normalize:
+                verbosePrint(f'\tNormalizing window function by number of neighbors', self.verbose)
+                numNeighbors = scatter(torch.ones_like(rows), rows, dim=0, dim_size=batch_size*numQueryTokens, reduce='sum')  # Shape: [num_nodes_current]
+                verbosePrint(f'\tNumber of neighbors per node min: {numNeighbors.min().item():.4f}, max: {numNeighbors.max().item():.4f}, median: {numNeighbors.median().item():.4f}', self.verbose)
+
+                windowScaling_sum = scatter(windowScaling, rows, dim=0, dim_size=batch_size*numQueryTokens, reduce='sum')  # Shape: [num_nodes_current]
+                verbosePrint(f'\tWindow function sum per node min: {windowScaling_sum.min().item():.4f}, max: {windowScaling_sum.max().item():.4f}, mean: {windowScaling_sum.mean().item():.4f}, std: {windowScaling_sum.std().item():.4f}', self.verbose)
+
+                windowScaling_sum = windowScaling_sum[rows]  # Shape: [num_edges]
+                # print(windowScaling_sum)
+                windowScaling = numNeighbors[rows] * windowScaling / (windowScaling_sum + 1e-16)
+
+
+                windowScaling_sum = scatter(windowScaling, rows, dim=0, dim_size=batch_size*numQueryTokens, reduce='sum')  # Shape: [num_nodes_current]
+                verbosePrint(f'\tWindow function sum per node after norm min: {windowScaling_sum.min().item():.4f}, max: {windowScaling_sum.max().item():.4f}, mean: {windowScaling_sum.mean().item():.4f}, std: {windowScaling_sum.std().item():.4f}', self.verbose)
+
+            verbosePrint(f'\tWindow function stats - min: {windowScaling.min().item():.4f}, max: {windowScaling.max().item():.4f}, mean: {windowScaling.mean().item():.4f}, std: {windowScaling.std().item():.4f}', self.verbose)
+            verbosePrint(f'\tWindow function after normalization shape: {windowScaling.shape} [nE]', self.verbose)
+            checkTensorShape(windowScaling, ['nE'], shape_dict, checkShapes, 'windowScaling')
+
+        ##############################################################################
+        #                        Step 4: Message Generation                           #
+        ##############################################################################
         verboseBannerPrint('Message Generation Step', self.verbose)
 
         if self.message_mode == 'transformer':
@@ -540,8 +731,86 @@ class MessagePassingLayer(torch.nn.Module):
         else:
             raise NotImplementedError('Only transformer message mode is implemented yet')
 
-        verboseBannerPrint('Aggregation Step', self.verbose)
+        ##############################################################################
+        #                        Step 5: Edge Gating                                   #
+        ##############################################################################
 
+        verboseBannerPrint('Edge Gating Step', self.verbose)
+        if self.edge_gating:
+            verbosePrint(f'Applying edge gating to messages', self.verbose)
+
+            gating_inputs = []
+            if self.edge_gating_edge_features != 'none' and edge_attr is not None:
+                edge_features_contribution = self.edge_gating_W_edge_features(edge_attr)  # [nE, G]
+                verbosePrint(f'\tEdge features contribution: {edge_features_contribution.shape} [nE, G]', self.verbose)
+                checkTensorShape(edge_features_contribution, ['nE', 'G'], shape_dict, checkShapes, 'edge_features_contribution')
+                gating_inputs.append(edge_features_contribution)
+            if self.edge_gating_edge_vectors != 'none' and edge_vector is not None:
+                edge_vectors_contribution = self.edge_gating_W_edge_vectors(edge_vector)  # [nE, G]
+                verbosePrint(f'\tEdge vectors contribution: {edge_vectors_contribution.shape} [nE, G]', self.verbose)
+                checkTensorShape(edge_vectors_contribution, ['nE', 'G'], shape_dict, checkShapes, 'edge_vectors_contribution')
+                gating_inputs.append(edge_vectors_contribution)
+            if self.edge_gating_rpb != 'none' and encodedEdges is not None:
+                rpb_contribution = self.edge_gating_W_rpb(encodedEdges)  # [nE, G]
+                verbosePrint(f'\tRPB contribution: {rpb_contribution.shape} [nE, G]', self.verbose)
+                checkTensorShape(rpb_contribution, ['nE', 'G'], shape_dict, checkShapes, 'rpb_contribution')
+                gating_inputs.append(rpb_contribution)
+
+            if len(gating_inputs) == 0:
+                raise ValueError('No inputs for edge gating, please check edge_gating settings and provided inputs')
+            gating_input = sum(gating_inputs)  # [nE, G]
+            verbosePrint(f'\tCombined gating input: {gating_input.shape} [nE, G]', self.verbose)
+            checkTensorShape(gating_input, ['nE', 'G'], shape_dict, checkShapes, 'gating_input')
+
+            if self.gatingActivation is not None:
+                verbosePrint(f'\tApplying gating activation: {self.gatingActivationName}', self.verbose)
+                gating_values = self.gatingActivation(gating_input)  # [nE, G]
+            else:
+                gating_values = gating_input
+            verbosePrint(f'\tGating values after activation: {gating_values.shape} [nE, G]', self.verbose)
+            checkTensorShape(gating_values, ['nE', 'G'], shape_dict, checkShapes, 'gating_values')
+
+            if self.edge_gating_repeat:
+                gating_values = gating_values.unsqueeze(0).repeat(self.multi_heads, 1, 1)  # [H, nE, T]
+                verbosePrint(f'\tRepeated gating values across heads: {gating_values.shape} [H, nE, T]', self.verbose)
+                checkTensorShape(gating_values, ['H', 'nE', 'T'], shape_dict, checkShapes, 'gating_values repeated')
+            else:
+                gating_values = gating_values.view(-1, self.multi_heads, self.transformer_features).permute(1,0,2)  # [H, nE, T]
+                verbosePrint(f'\tReshaped gating values for heads: {gating_values.shape} [H, nE, T]', self.verbose)
+                checkTensorShape(gating_values, ['H', 'nE', 'T'], shape_dict, checkShapes, 'gating_values reshaped')
+
+            if self.edge_gating_mode == 'multiply':
+                verbosePrint(f'\tApplying multiplicative gating', self.verbose)
+                final_messages = final_messages * gating_values  # [H, nE, T]
+            elif self.edge_gating_mode == 'add':
+                verbosePrint(f'\tApplying additive gating', self.verbose)
+                final_messages = final_messages + gating_values  # [H, nE, T]
+            else:
+                raise ValueError(f'Invalid edge_gating_mode: {self.edge_gating_mode}, must be "multiply" or "add"')
+
+        ###############################################################################
+        #                      Step 6: Window Function Application                    #
+        ###############################################################################
+        verboseBannerPrint('Window Function Step', self.verbose)
+        if self.window_function and self.window_function_as_gate:        # Normalize to sum to 1 for each query node
+            # print(f'Window Scaling min: {windowScaling.min().item():.4f}, max: {windowScaling.max().item():.4f}, mean: {windowScaling.mean().item():.4f}, std: {windowScaling.std().item():.4f}')
+
+            verbosePrint(f'\tApplying Window Function Scaling to messages', self.verbose)
+
+            verbosePrint(f'\tMessages before window function shape: {final_messages.shape} [H x E x F]', self.verbose)
+            verbosePrint(f'\tWindow function shape: {windowScaling.shape} [E]', self.verbose)
+          
+            # Window function scaling shape: [E] -> [1, H, E]
+            # First expand then repeat to match attention weights shape
+            windowScaling_expanded = windowScaling.view(1, -1, 1)
+            checkTensorShape(windowScaling_expanded, [1, 'nE', 1], shape_dict, checkShapes, 'windowScaling_expanded')
+
+            final_messages = final_messages * windowScaling_expanded
+            verbosePrint(f'\tMessages after window function shape: {final_messages.shape} [H x nE x T]', self.verbose)
+            checkTensorShape(final_messages, ['H', 'nE', 'T'], shape_dict, checkShapes, 'final_messages after window function')
+
+
+        verboseBannerPrint('Aggregation Step', self.verbose)
         message_values = final_messages.reshape(-1, self.transformer_features)  # [H*NE, T]
         batch_size_edges = 1
 
@@ -561,7 +830,7 @@ class MessagePassingLayer(torch.nn.Module):
         dense_output = aggregated_messages_sparse.to_dense()
 
 
-        verbosePrint(f'Dense output shape: {dense_output.shape} [B x nQ x H  * T ]', self.verbose)
+        verbosePrint(f'Dense output shape: {dense_output.shape} [B*nQ x H x T ]', self.verbose)
         attentionOutputSparse = dense_output.reshape(batch_size, numQueryTokens, -1)#.transpose(0, 1)
         checkTensorShape(attentionOutputSparse, ['B', 'nQ', 'H*T'], shape_dict, checkShapes, 'attentionOutputSparse')
         verbosePrint(f'Attention output sparse shape: {attentionOutputSparse.shape} [B x nQ x H*T]', self.verbose)
