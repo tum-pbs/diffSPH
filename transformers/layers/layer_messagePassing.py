@@ -446,8 +446,36 @@ class MessagePassingLayer(torch.nn.Module):
             self.windowDim = 0
 
         verboseBannerPrint('Building Message Generation', verbose)
-        if self.message_mode != 'transformer':
+        if self.message_mode == 'transformer':
+            # In transformer mode, we do not need to do anything special here as the message is simply the result of multiplying the attention mechanism with the value vectors with no learnable parameters
+            verbosePrint(f'Transformer message mode enabled', verbose)
+            pass
+        elif self.message_mode == 'gnn':
+            verbosePrint(f'GNN message mode enabled', verbose)
             raise NotImplementedError('Only transformer message mode is implemented yet')
+        elif self.message_mode == 'cconv':
+            """ 
+Continuous convolution mode, i.e., we construct a weight matrix that maps the incoming features to the outgoing features conditioned on edge spatial relations
+
+In the basic cconv paper (and follow up work) this is achieved by evaluating some basis functions $b(x)$ for each incoming spatial dimension which gives a basis tensor of shape
+[ num_edges, num_basis_functions ^ spatial_dim ], e.g., [n_e, 4,4], in 2D.
+
+Then given an incoming feature vector of shape [num_edges, in_features], e.g., [n_e, 16], the approach of CConv is computing a 4 dimensional weight tensor of shape [num_basis_functions ^ spatial_dim, in_features, out_features], e.g., [4,4,16,16]. This tensor can be used via
+conv = torch.einsum('nu, nv, nw, uvwio,ni -> no',u,v,w,weight, x_j[batch])
+
+where u,v,w are the basis function evaluations for each spatial dimension, e.g., [n_e,4], and weight is the weight tensor, e.g., [4,4,16,16], and x_j are the incoming features, e.g., [n_e,16], to produce the outgoing features no, e.g., [n_e,16].
+
+Pulling apart the einsum, we can see that this is equivalent to first computing a weight matrix for each edge via
+W_e = torch.einsum('nu, nv, uvio -> ncio',u,v,weight) which gives a weight matrix of shape [n_e, 16, 16]. Then we can apply this weight matrix to the incoming features via
+out_e = torch.einsum('nio, ni -> no', W_e, x_j) to get the outgoing features [n_e, 16].
+
+Similarly we could combined u,v,w as before into a single  tensor with the same result.
+
+ """
+            verbosePrint(f'Continuous Convolution message mode enabled', verbose)
+            raise NotImplementedError('Only transformer message mode is implemented yet')
+        else:
+            raise ValueError(f'message_mode must be one of "transformer", "gnn", or "cconv", got {self.message_mode}')
 
 
         verboseBannerPrint('Building Output Projection', verbose)
