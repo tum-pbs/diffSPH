@@ -106,10 +106,10 @@ def getDefaultMLPDict():
         'channels': 1,
     }
 
-def buildMLPwDict(properties : dict, verbose : bool = False, verbosePrefix = ''):
+def buildMLPwDict(properties : dict, verbose : bool = False, verbosePrefix = '', inputDim = None, outputDim = None):
     layout = properties['layout'] if 'layout' in properties else []
-    output = properties['output']
-    inputFeatures = properties['inputFeatures']
+    output = properties['output'] if outputDim is None else outputDim
+    inputFeatures = properties['inputFeatures'] if inputDim is None else inputDim
     groups = properties['channels'] if 'channels' in properties else 1
 
 

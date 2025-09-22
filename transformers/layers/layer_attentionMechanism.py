@@ -175,8 +175,7 @@ class AttentionMechanismLayer(torch.nn.Module):
         self.relativePositionBiasMLPDict = relativePositionBiasMLPDict if relativePositionBiasMLPDict is not None else getDefaultMLPDict()
         self.relativePositionBiasAfterAttention = relativePositionBiasAfterAttention
         self.relativePositionBiasEncoder = relativePositionBiasEncoder
-        self.relativePositionBiasDim = relativePositionBiasDim if relativePositionBiasDim is not None else (self.num_heads if self.relativePositionBiasAfterAttention else self.
-        transformer_dim)
+        self.relativePositionBiasDim = relativePositionBiasDim if relativePositionBiasDim is not None else (self.num_heads if self.relativePositionBiasAfterAttention else self.        transformer_dim)
         self.relativePositionBiasSplit = relativePositionBiasSplit
         verbosePrint(f'\tRelative Position Bias: {self.relativePositionBias}', verbose, separator=True)
         if self.relativePositionBias or self.cConvMode:
@@ -433,6 +432,9 @@ This means that the RPB has the following parameters:
             )
             self.rpbDim = self.rpbEncoder.outputShape
             verbosePrint(f'\trpb encoder output shape: {self.rpbDim}', verbose)
+            if self.relativePositionBiasSplit:
+                if self.rpbDim % self.num_heads != 0:
+                    raise ValueError(f'relativePositionBiasDim must be a multiple of num_heads ({self.num_heads}) if relativePositionBiasSplit is True, got {self.rpbDim}')
             self.rpbDimPerHead = self.rpbDim // self.num_heads if split_across_heads else self.rpbDim
         else:
             self.rpbDim = 0
@@ -800,4 +802,4 @@ This means that the RPB has the following parameters:
             normalized_weights = normalized_weights * windowScaling_expanded
             verbosePrint(f'\tNormalized Weights after window function shape: {normalized_weights.shape} [1 {1} x H {self.num_heads} x E {num_edges}]', self.verbose)
 
-        return normalized_weights
+        return normalized_weights.view(self.num_heads, num_edges)
