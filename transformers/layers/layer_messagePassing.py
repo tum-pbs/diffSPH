@@ -242,7 +242,7 @@ class MessagePassingLayer(torch.nn.Module):
                 verbose: bool = False
                  ):
         super(MessagePassingLayer, self).__init__()
-        verboseBannerPrint('Initializing MessagePassingLayer', True)
+        verboseBannerPrint('Initializing MessagePassingLayer', verbose)
 
         self.node_feature_dim = node_feature_dim
         self.transformer_features = transformer_features
@@ -1116,12 +1116,12 @@ As an additional (novel I suppose) option, we can also first project the input t
             verbosePrint(f'Applying edge gating to messages', self.verbose)
 
             gating_inputs = []
-            if self.edge_gating_edge_features != 'none' and edge_attr is not None:
+            if self.edge_gating_edge_features and edge_attr is not None:
                 edge_features_contribution = self.edge_gating_W_edge_features(edge_attr)  # [nE, G]
                 verbosePrint(f'\tEdge features contribution: {edge_features_contribution.shape} [nE, G]', self.verbose)
                 checkTensorShape(edge_features_contribution, ['nE', 'G'], shape_dict, checkShapes, 'edge_features_contribution')
                 gating_inputs.append(edge_features_contribution)
-            if self.edge_gating_edge_vectors != 'none' and edge_vector is not None:
+            if self.edge_gating_edge_vectors and edge_vector is not None:
                 edge_vectors_contribution = self.edge_gating_W_edge_vectors(edge_vector)  # [nE, G]
                 verbosePrint(f'\tEdge vectors contribution: {edge_vectors_contribution.shape} [nE, G]', self.verbose)
                 checkTensorShape(edge_vectors_contribution, ['nE', 'G'], shape_dict, checkShapes, 'edge_vectors_contribution')

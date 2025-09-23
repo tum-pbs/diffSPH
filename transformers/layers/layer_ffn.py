@@ -53,7 +53,7 @@ from .mlp import buildMLPwDict, getDefaultMLPDict
 # - inputPositions: A tensor of shape [num_tokens, spatial_dim] representing the position vectors for each token
 # - cutoffRadius: A scalar value representing the cutoff radius for neighborhood search (if applicable) [Optional]
 
-class FeedForwardNetwork(torch.nn.Module):
+class FeedForwardNetworkLayer(torch.nn.Module):
     def __init__(self, 
                  input_dim: int,
                  output_dim: int,
@@ -68,7 +68,7 @@ class FeedForwardNetwork(torch.nn.Module):
 
                  verbose: bool = False
     ):
-        super(FeedForwardNetwork, self).__init__()
+        super(FeedForwardNetworkLayer, self).__init__()
         verbosePrint('Initializing Feed Forward Network...', verbose)
 
         self.input_dim = input_dim
