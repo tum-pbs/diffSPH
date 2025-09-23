@@ -209,16 +209,23 @@ class MessagePassingLayer(torch.nn.Module):
                 window_function_normalize: bool = False,
                 window_function_as_gate: bool = True,
 
+                gnn_linear: bool = False,
+                gnn_per_head: bool = True,
                 gnn_window_function: bool = False,
                 gnn_node_i_features: bool = False,
                 gnn_node_j_features: bool = True,
                 gnn_node_sum_features: bool = False,
                 gnn_node_diff_features: bool = False,
-                gnn_edge_features: bool = True,
+                gnn_edge_features: bool = False,
                 gnn_attention_features: bool = True,
                 gnn_spatial_features: bool = True,
                 gnn_spatial_distance: bool = False,
                 gnn_mlp_dict: Optional[dict] = None,     
+
+                cconv_use_latent_proj: bool = True,
+                cconv_use_linear: bool = True,
+                cconv_latent_dim: Optional[int] = None,
+                cconv_mlp_dict: Optional[dict] = None,
 
                 # Each edge gate is realized by using a linear projection to compute a gating value with an optional activation
                 edge_gating: bool = False,
@@ -295,6 +302,8 @@ class MessagePassingLayer(torch.nn.Module):
         verbosePrint(f'Window Function:\n\twindow_function: {window_function}, window_function_type: {window_function_type}, gnn_window_function: {gnn_window_function}, window_function_as_gate: {window_function_as_gate}', verbose, separator=True)
 
 
+        self.gnn_per_head = gnn_per_head
+        self.gnn_linear = gnn_linear
         self.gnn_node_i_features = gnn_node_i_features
         self.gnn_node_j_features = gnn_node_j_features
         self.gnn_node_sum_features = gnn_node_sum_features
@@ -326,6 +335,12 @@ class MessagePassingLayer(torch.nn.Module):
         self.edge_gating_mode = edge_gating_mode
 
         verbosePrint(f'Edge Gating:\n\tedge_gating: {self.edge_gating}, edge_gating_repeat: {self.edge_gating_repeat}, edge_gating_edge_vectors: {self.edge_gating_edge_vectors}, edge_gating_edge_features: {self.edge_gating_edge_features}, edge_gating_rpb: {self.edge_gating_rpb}\n\tedge_gating_activation: {self.gatingActivationName}', verbose, separator=True)
+
+        self.cconv_use_latent_proj = cconv_use_latent_proj
+        self.cconv_use_linear = cconv_use_linear
+        self.cconv_latent_dim = cconv_latent_dim
+        self.cconv_mlp_dict = cconv_mlp_dict if cconv_mlp_dict is not None else getDefaultMLPDict()
+        verbosePrint(f'Continuous Convolution Message Generation:\n\tcconv_use_latent_proj: {cconv_use_latent_proj}, cconv_latent_dim: {cconv_latent_dim}', verbose, separator=True)
 
         self.verbose = verbose
 
@@ -445,6 +460,66 @@ class MessagePassingLayer(torch.nn.Module):
             verbosePrint(f'Window function disabled', verbose)
             self.windowDim = 0
 
+        verboseBannerPrint('Gathering Edge Information', verbose)
+        edge_features = []
+        edge_feature_dim = 0
+
+        if self.gnn_window_function:
+            verbosePrint(f'Including window function in message generation', verbose)
+            edge_features.append(('window function', self.windowDim))
+            edge_feature_dim += self.windowDim
+            if self.windowDim <= 0:
+                raise ValueError(f'windowDim must be > 0 if gnn_window_function is True, got windowDim={self.windowDim}')
+        if self.gnn_node_i_features:
+            verbosePrint(f'Including target node features in message generation', verbose)
+            edge_features.append(('node i features', self.latent_dim if not self.gnn_per_head else self.transformer_features))
+            edge_feature_dim += self.latent_dim if not self.gnn_per_head else self.transformer_features
+        if self.gnn_node_j_features:
+            verbosePrint(f'Including source node features in message generation', verbose)
+            edge_features.append(('node j features', self.latent_dim if not self.gnn_per_head else self.transformer_features))
+            edge_feature_dim += self.latent_dim if not self.gnn_per_head else self.transformer_features
+        if self.gnn_node_sum_features:
+            verbosePrint(f'Including node feature sum in message generation', verbose)
+            edge_features.append(('node feature sum', self.latent_dim if not self.gnn_per_head else self.transformer_features))
+            edge_feature_dim += self.latent_dim if not self.gnn_per_head else self.transformer_features
+        if self.gnn_node_diff_features:
+            verbosePrint(f'Including node feature difference in message generation', verbose)
+            edge_features.append(('node feature difference', self.latent_dim if not self.gnn_per_head else self.transformer_features))
+            edge_feature_dim += self.latent_dim if not self.gnn_per_head else self.transformer_features
+        if self.gnn_edge_features:
+            verbosePrint(f'Including edge features in message generation', verbose)
+            edge_features.append(('edge features', self.edgeFeatureSize))
+            edge_feature_dim += self.edgeFeatureSize
+            if self.edgeFeatureSize <= 0:
+                raise ValueError(f'edgeFeatureSize must be > 0 if gnn_edge_features is True, got edgeFeatureSize={self.edgeFeatureSize}')
+        if self.gnn_attention_features:
+            verbosePrint(f'Including attention values in message generation', verbose)
+            edge_features.append(('attention values', self.multi_heads if not self.gnn_per_head else 1))
+            edge_feature_dim += self.multi_heads if not self.gnn_per_head else 1
+        if self.gnn_spatial_features:
+            if self.relative_position_bias and self.rpbDim > 0:
+                verbosePrint(f'Including relative position bias in message generation', verbose)
+                edge_features.append(('relative position bias', self.rpbDim))
+                edge_feature_dim += self.rpbDim
+                if self.rpbDim <= 0:
+                    raise ValueError(f'rpbDim must be > 0 if relative_position_bias is True and gnn_spatial_features is True, got rpbDim={self.rpbDim}')
+            elif self.spatial_dim > 0:
+                verbosePrint(f'Including spatial edge vectors in message generation', verbose)
+                edge_features.append(('edge vectors', self.spatial_dim))
+                edge_feature_dim += self.spatial_dim
+                if self.spatial_dim <= 0:
+                    raise ValueError(f'spatial_dim must be > 0 if gnn_spatial_features is True and relative_position_bias is False and edgeFeatureSize <= 0, got spatial_dim={self.spatial_dim}')
+            else:
+                raise ValueError(f'either relative_position_bias must be True or spatial_dim > 0 if gnn_spatial_features is True, got relative_position_bias={self.relative_position_bias}, spatial_dim={self.spatial_dim}')
+        if self.gnn_spatial_distance:
+            verbosePrint(f'Including spatial edge distance in message generation', verbose)
+            edge_features.append(('edge distance', 1))
+            edge_feature_dim += 1
+        verbosePrint(f'Gathered edge features for message generation:', verbose)
+        for name, dim in edge_features:
+            verbosePrint(f'\t{name}: {dim}', verbose)
+        verbosePrint(f'\tTotal edge feature dimension: {edge_feature_dim}', verbose)
+
         verboseBannerPrint('Building Message Generation', verbose)
         if self.message_mode == 'transformer':
             # In transformer mode, we do not need to do anything special here as the message is simply the result of multiplying the attention mechanism with the value vectors with no learnable parameters
@@ -452,7 +527,32 @@ class MessagePassingLayer(torch.nn.Module):
             pass
         elif self.message_mode == 'gnn':
             verbosePrint(f'GNN message mode enabled', verbose)
-            raise NotImplementedError('Only transformer message mode is implemented yet')
+
+            if edge_feature_dim <= 0:
+                raise ValueError(f'At least one edge feature must be included for message generation in GNN mode, got edge_feature_dim={edge_feature_dim}')
+            if self.gnn_per_head:
+                verbosePrint(f'GNN message generation per head', verbose)
+                self.message_input_dim = edge_feature_dim
+                self.message_output_dim = self.transformer_features
+            else:
+                verbosePrint(f'GNN message generation using all heads', verbose)
+                self.message_input_dim = edge_feature_dim
+                self.message_output_dim = self.transformer_features * self.multi_heads
+
+            verbosePrint(f'\tMessage input dimension: {self.message_input_dim}', verbose)
+            verbosePrint(f'\tMessage output dimension: {self.message_output_dim}', verbose)
+
+            if self.gnn_linear:
+                verbosePrint(f'Using linear layer for message generation', verbose)
+                self.messageGeneration = nn.Linear(self.message_input_dim, self.message_output_dim)
+                verbosePrint(f'\tShape: {self.message_input_dim} -> {self.message_output_dim}', verbose)
+            else:
+                verbosePrint(f'Using MLP for message generation', verbose)
+                self.messageGeneration = buildMLPwDict(self.gnn_mlp_dict, verbose, inputDim=self.message_input_dim, outputDim=self.message_output_dim, verbosePrefix='\t')
+
+            verbosePrint(f'\tShape: {self.message_input_dim} -> {self.message_output_dim}', verbose)
+
+            # raise NotImplementedError('Only transformer message mode is implemented yet')
         elif self.message_mode == 'cconv':
             """ 
 Continuous convolution mode, i.e., we construct a weight matrix that maps the incoming features to the outgoing features conditioned on edge spatial relations
@@ -471,9 +571,89 @@ out_e = torch.einsum('nio, ni -> no', W_e, x_j) to get the outgoing features [n_
 
 Similarly we could combined u,v,w as before into a single  tensor with the same result.
 
+Consequently, it is an analogous statement to the CConv approach that we 
+1. Compute the basis function evaluations for each edge to get a basis tensor of shape [n_e, b^d] where b is the number of basis functions and d is the spatial dimension
+2. Flatten the basis tensor to shape [n_e, b^d] -> [n_e, B] where B = b^d
+3. Apply a linear projection to map the basis tensor to a weight matrix of shape [n_e, B] -> [n_e, I, O] where I is the input feature size and O is the output feature size
+4. Apply the weight matrix to the incoming features to get the outgoing features [n_e, I, O].[n_e, I] -> [n_e, O]
+
+When applying this to an attention mechanism with multiple heads, we have the following options:
+1. Split the input features across heads, i.e., I = H * T, where H is the number of heads and T is the transformer feature size. In this case, we can compute a single weight matrix that maps H*T to H*T, i.e., [n_e, H*T, H*T], and then reshape the output to [n_e, H, T]
+2. Do not split the input features across heads, i.e., I = T, where H is the number of heads and T is the transformer feature size as the weightings are repeated across heads. In this case, we need to compute a weight matrix that maps T to T, i.e., [n_e, T, T], and then repeat the output across heads to get [n_e, H, T]
+
+As an additional (novel I suppose) option, we can also first project the input to a reduced latent space as the intermediate matrix can become very large for large input and output feature sizes. This project can be done using the GNN mechanism already available for message generation. If this projection is used we also need to project the output back to the original size.
+
+
  """
             verbosePrint(f'Continuous Convolution message mode enabled', verbose)
-            raise NotImplementedError('Only transformer message mode is implemented yet')
+            if self.spatial_dim <= 0:
+                raise ValueError(f'spatial_dim must be > 0 if message_mode is "cconv", got spatial_dim={self.spatial_dim}')
+            if edge_feature_dim <= 0:
+                raise ValueError(f'At least one edge feature must be included for message generation in GNN mode, got edge_feature_dim={edge_feature_dim}')
+            if self.gnn_per_head:
+                verbosePrint(f'GNN message generation per head', verbose)
+                self.message_input_dim = edge_feature_dim
+                self.message_output_dim = self.transformer_features
+            else:
+                verbosePrint(f'GNN message generation using all heads', verbose)
+                self.message_input_dim = edge_feature_dim
+                self.message_output_dim = self.transformer_features * self.multi_heads
+            if self.cconv_use_latent_proj:
+                verbosePrint(f'Using latent projection for continuous convolution weight generation', verbose)
+                if self.cconv_latent_dim is None:
+                    raise ValueError(f'cconv_latent_dim must be specified if cconv_use_latent_proj is True, got cconv_latent_dim={self.cconv_latent_dim}')
+                if self.cconv_latent_dim <= 0:
+                    raise ValueError(f'cconv_latent_dim must be > 0 if cconv_use_latent_proj is True, got cconv_latent_dim={self.cconv_latent_dim}')
+                self.message_latent_dim = self.cconv_latent_dim
+
+                if self.message_latent_dim % self.multi_heads != 0 and not self.gnn_per_head:
+                    raise ValueError(f'cconv_latent_dim must be a multiple of multi_heads if split_across_heads is True, got cconv_latent_dim={self.cconv_latent_dim}, multi_heads={self.multi_heads}')
+
+                if not self.gnn_per_head:
+                    verbosePrint(f'\tLatent feature size: {self.message_latent_dim}', verbose)
+                    self.message_latent_dim
+
+                if self.cconv_use_linear:
+                    verbosePrint(f'Using linear layer for latent projection', verbose)
+                    self.messageLatentProjection = nn.Linear(self.message_input_dim, self.message_latent_dim)
+                    verbosePrint(f'\tShape: {self.message_input_dim} -> {self.message_latent_dim}', verbose)
+                else:
+                    verbosePrint(f'Using MLP for latent projection', verbose)
+                    self.messageLatentProjection = buildMLPwDict(self.cconv_mlp_dict, verbose, inputDim=self.message_input_dim, outputDim=self.message_latent_dim, verbosePrefix='\t')
+                    verbosePrint(f'\tShape: {self.message_input_dim} -> {self.message_latent_dim}', verbose)
+
+                # self.message_input_dim = self.message_latent_dim
+
+                self.messageLatentOutputProjection = nn.Linear(self.message_latent_dim, self.message_output_dim)
+            
+
+            verbosePrint(f'\tMessage input dimension: {self.message_input_dim}', verbose)
+            verbosePrint(f'\tMessage output dimension: {self.message_output_dim}', verbose)
+            if self.cconv_use_latent_proj:
+                verbosePrint(f'\tMessage latent dimension: {self.message_latent_dim}', verbose)
+                verbosePrint(f'\tUsing split across heads: {self.gnn_per_head}', verbose)
+
+                if self.gnn_linear:
+                    verbosePrint(f'Using linear layer for message generation', verbose)
+                    self.messageGeneration = nn.Linear(self.rpbDim, self.message_latent_dim * self.message_latent_dim)
+                    verbosePrint(f'\tShape: {self.rpbDim} -> {self.message_latent_dim * self.message_latent_dim}', verbose)
+                else:
+                    verbosePrint(f'Using MLP for message generation', verbose)
+                    self.messageGeneration = buildMLPwDict(self.gnn_mlp_dict, verbose, inputDim=self.rpbDim, outputDim=self.message_latent_dim * self.message_latent_dim, verbosePrefix='\t')
+                    verbosePrint(f'\tShape: {self.rpbDim} -> {self.message_latent_dim * self.message_latent_dim}', verbose)
+            else:
+                verbosePrint(f'\tUsing split across heads: {self.split_across_heads}', verbose)
+
+                if self.gnn_linear:
+                    verbosePrint(f'Using linear layer for message generation', verbose)
+                    self.messageGeneration = nn.Linear(self.rpbDim, self.message_input_dim * self.message_output_dim)
+                    verbosePrint(f'\tShape: {self.rpbDim} -> {self.message_input_dim * self.message_output_dim}', verbose)
+                else:
+                    verbosePrint(f'Using MLP for message generation', verbose)
+                    self.messageGeneration = buildMLPwDict(self.gnn_mlp_dict, verbose, inputDim=self.rpbDim, outputDim=self.message_input_dim * self.message_output_dim, verbosePrefix='\t')
+                    verbosePrint(f'\tShape: {self.rpbDim} -> {self.message_input_dim * self.message_output_dim}', verbose)
+
+            # raise NotImplementedError('Only transformer message mode is implemented yet')
         else:
             raise ValueError(f'message_mode must be one of "transformer", "gnn", or "cconv", got {self.message_mode}')
 
@@ -756,6 +936,174 @@ Similarly we could combined u,v,w as before into a single  tensor with the same 
 
             checkTensorShape(final_messages, ['H', 'nE', 'T'], shape_dict, checkShapes, 'messages')
             checkTensorShape(attentionValues, ['H', 'nE', 1], shape_dict, checkShapes, 'attentionValues')
+        elif self.message_mode == 'gnn' or self.message_mode == 'cconv':
+            if self.message_mode == 'gnn':
+                verbosePrint(f'Using GNN style message generation', self.verbose)
+            else:
+                verbosePrint(f'Using Continuous Convolution style message generation', self.verbose)
+
+            # Construct edge features for message generation
+            # The relevant inputs are:
+            # Edge Features: [nE, EF] (edge_attr)
+            # Spatial Features: 
+            # - [nE, D] (edge_vector)
+            # - [nE, RPB] (encodedEdges) or [nE, H, RPB] if split across heads
+            # - [nE, 1] (edge distance)
+            # Node Features:
+            # - [H, nE, T] (f_i)
+            # - [H, nE, T] (V_j)
+            # And their sum/difference
+            # 
+            # If we use the gnn_per_head option, we need to generate messages for each head separately, otherwise we generate messages for all heads at once
+            # Consequently, for gnn_per_head the input will have shape [nE, H, ...] and the output will have shape [nE, H, T]
+            # For not gnn_per_head the input will have shape [nE, ...] and the output will have shape [nE, H*T]
+            gnn_inputs = []
+            if self.gnn_edge_features and edge_attr is not None:
+                gnn_inputs.append(edge_attr.view(numEdges, 1, -1))
+                verbosePrint(f'\tIncluding edge features in message generation: {edge_attr.shape} [nE, EF]', self.verbose)
+                checkTensorShape(edge_attr, ['nE', 'E'], shape_dict, checkShapes, 'edge_attr for message generation')
+            # if self.gnn_edge_vectors and edge_vector is not None:
+            #     gnn_inputs.append(edge_vector.view(numEdges, 1, -1))
+            #     verbosePrint(f'\tIncluding edge vectors in message generation: {edge_vector.shape} [nE, D]', self.verbose)
+            #     checkTensorShape(edge_vector, ['nE', 'D'], shape_dict, checkShapes, 'edge_vector for message generation')
+            if self.gnn_spatial_distance and edge_vector is not None:
+                edge_distances = torch.linalg.norm(edge_vector, dim=-1, keepdim=True)  # [nE, 1]
+                gnn_inputs.append(edge_distances.view(numEdges, 1, -1))
+                verbosePrint(f'\tIncluding edge distances in message generation: {edge_distances.shape} [nE, 1]', self.verbose)
+                checkTensorShape(edge_distances, ['nE', 1], shape_dict, checkShapes, 'edge_distances for message generation')
+            if self.gnn_spatial_features:
+                if self.relative_position_bias:
+                    if encodedEdges is None:
+                        raise ValueError('encodedEdges must be provided for relative position bias in message generation')
+                    verbosePrint(f'\tUsing relative position bias for spatial features in message generation shape: {encodedEdges.shape} [nE, RPB]', self.verbose)
+                    if self.rpb_split:
+                        gnn_inputs.append(encodedEdges.view(numEdges, self.multi_heads, -1))
+                        verbosePrint(f'\tIncluding RPB in message generation: {encodedEdges.shape} [nE, H, RPB]', self.verbose)
+                        checkTensorShape(encodedEdges, ['nE', 'H', 'RPB'], shape_dict, checkShapes, 'encodedEdges for message generation')
+                    else:
+                        gnn_inputs.append(encodedEdges.view(numEdges, 1, -1))
+                        verbosePrint(f'\tIncluding RPB in message generation: {encodedEdges.shape} [nE, RPB]', self.verbose)
+                        checkTensorShape(encodedEdges, ['nE', 'RPB'], shape_dict, checkShapes, 'encodedEdges for message generation')
+                else:
+                    if edge_vector is None:
+                        raise ValueError('edge_vector must be provided for spatial features in message generation')
+                    gnn_inputs.append(edge_vector.view(numEdges, 1, -1))
+                    verbosePrint(f'\tIncluding edge vectors in message generation: {edge_vector.shape} [nE, D]', self.verbose)
+                    checkTensorShape(edge_vector, ['nE', 'D'], shape_dict, checkShapes, 'edge_vector for message generation')
+            if self.gnn_node_i_features and f_i is not None:
+                gnn_inputs.append(f_i.permute(1,0,2))  # [nE, H, T]
+                verbosePrint(f'\tIncluding query node features in message generation: {f_i.shape} [H, nE, T]', self.verbose)
+                checkTensorShape(f_i, ['H', 'nE', 'T'], shape_dict, checkShapes, 'f_i for message generation')
+            if self.gnn_node_j_features and V_j is not None:
+                gnn_inputs.append(V_j.permute(1,0,2))  # [nE, H, T]
+                verbosePrint(f'\tIncluding key node features in message generation: {V_j.shape} [H, nE, T]', self.verbose)
+                checkTensorShape(V_j, ['H', 'nE', 'T'], shape_dict, checkShapes, 'V_j for message generation')
+            if self.gnn_node_diff_features and f_i is not None and V_j is not None:
+                gnn_inputs.append((f_i - V_j).permute(1,0,2))  # [nE, H, T]
+                verbosePrint(f'\tIncluding node feature difference in message generation: {f_i.shape} [H, nE, T]', self.verbose)
+                checkTensorShape(f_i, ['H', 'nE', 'T'], shape_dict, checkShapes, 'f_i - V_j for message generation')
+            if self.gnn_node_sum_features and f_i is not None and V_j is not None:
+                gnn_inputs.append((f_i + V_j).permute(1,0,2))  # [nE, H, T]
+                verbosePrint(f'\tIncluding node feature sum in message generation: {f_i.shape} [H, nE, T]', self.verbose)
+                checkTensorShape(f_i, ['H', 'nE', 'T'], shape_dict, checkShapes, 'f_i + V_j for message generation')
+            if self.gnn_attention_features and attention_values is not None:
+                gnn_inputs.append(attention_values.mT.view(numEdges, -1, 1))  # [H, nE, 1]
+                verbosePrint(f'\tIncluding attention values in message generation: {attention_values.shape} [H, nE]', self.verbose)
+                checkTensorShape(attention_values, ['H', 'nE'], shape_dict, checkShapes, 'attention_values for message generation')
+            if self.gnn_window_function and self.window_function and windowScaling is not None:
+                gnn_inputs.append(windowScaling.view(numEdges, 1, 1))  # [nE, 1, 1]
+                verbosePrint(f'\tIncluding window function values in message generation: {windowScaling.shape} [nE]', self.verbose)
+                checkTensorShape(windowScaling, ['nE'], shape_dict, checkShapes, 'windowScaling for message generation')
+
+            for i, inp in enumerate(gnn_inputs):
+                verbosePrint(f'\tMessage generation input {i} shape: {inp.shape}', self.verbose)
+
+            if self.gnn_per_head:
+                # For any of the inputs with 1 as the second dimension, they need to be repeated for each head to match dimensions
+                for i in range(len(gnn_inputs)):
+                    if len(gnn_inputs[i].shape) == 2:
+                        gnn_inputs[i] = gnn_inputs[i].unsqueeze(1).repeat(1, self.multi_heads, 1)  # [nE, H, F]
+                    elif len(gnn_inputs[i].shape) == 3 and gnn_inputs[i].shape[1] == 1:
+                        gnn_inputs[i] = gnn_inputs[i].repeat(1, self.multi_heads, 1)  # [nE, H, F]
+                    elif len(gnn_inputs[i].shape) == 3 and gnn_inputs[i].shape[1] == self.multi_heads:
+                        pass  # Already correct shape
+                    else:
+                        raise ValueError(f'Input {i} to message generation has invalid shape {gnn_inputs[i].shape} for gnn_per_head=True')
+                    verbosePrint(f'\tAfter processing, message generation input {i} shape: {gnn_inputs[i].shape}', self.verbose)
+
+                # Then we can concatenate all inputs along the last dimension
+            else:
+                # For any of the inputs with more than 2 dimensions, we need to flatten the second and third dimensions
+                for i in range(len(gnn_inputs)):
+                    if len(gnn_inputs[i].shape) == 3 and gnn_inputs[i].shape[1] == self.multi_heads:
+                        gnn_inputs[i] = gnn_inputs[i].view(numEdges, -1)  # [nE, H*F]
+                    elif len(gnn_inputs[i].shape) == 2:
+                        pass  # Already correct shape
+                    else:
+                        raise ValueError(f'Input {i} to message generation has invalid shape {gnn_inputs[i].shape} for gnn_per_head=False')
+                    verbosePrint(f'\tAfter processing, message generation input {i} shape: {gnn_inputs[i].shape}', self.verbose)
+                # Then we can concatenate all inputs along the last dimension
+
+            message_input = torch.cat(gnn_inputs, dim=-1)  # [nE, H, sum(F_i)] or [nE, sum(F_i)]
+            if not self.gnn_per_head:
+                message_input = message_input.view(numEdges, 1, -1)  # [nE, sum(F_i)]
+            verbosePrint(f'\tCombined message generation input shape: {message_input.shape} [nE, {"H, " if self.gnn_per_head else ""}F]', self.verbose)
+            
+            if self.message_mode == 'gnn':
+                messages = self.messageGeneration(message_input)  # [nE, H, T] or [nE, H*T]
+                verbosePrint(f'\tGenerated Messages shape: {messages.shape} [nE, {"H, " if self.gnn_per_head else ""}T]', self.verbose)
+            elif self.message_mode == 'cconv':
+                if self.cconv_use_latent_proj:
+                    cconv_input = self.messageLatentProjection(message_input)  # [nE, H, L] or [nE, L]
+                    verbosePrint(f'\tProjected CConv input shape: {cconv_input.shape} [nE, {"H, " if self.gnn_per_head else ""}L]', self.verbose)
+                else:
+                    cconv_input = message_input
+
+
+                edges = encodedEdges
+                if self.rpb_split:
+                    if edges is None:
+                        raise ValueError('encodedEdges must be provided for rpb_split in cconv message generation')
+                    edges = edges.view(numEdges, self.multi_heads, -1)  # [nE, H, RPB]
+                    verbosePrint(f'\tUsing split RPB for CConv edges: {edges.shape} [nE, H, RPB]', self.verbose)
+                    checkTensorShape(edges, ['nE', 'H', 'RPB'], shape_dict, checkShapes, 'encodedEdges for CConv message generation')
+                else:
+                    if edges is None:
+                        raise ValueError('encodedEdges must be provided for cconv message generation')
+                    edges = edges.view(numEdges, 1, -1)  # [nE, 1, RPB]
+                    verbosePrint(f'\tUsing shared RPB for CConv edges: {edges.shape} [nE, RPB]', self.verbose)
+                    checkTensorShape(edges, ['nE', 1, 'RPB'], shape_dict, checkShapes, 'encodedEdges for CConv message generation')
+                weights = self.messageGeneration(edges).view(numEdges, cconv_input.shape[-1], -1)  # [nE*H, L, T] or [nE, L, T]
+                verbosePrint(f'\tCConv Weights shape: {weights.shape} [nE, {"H, " if self.gnn_per_head else ""}L, T]', self.verbose)
+
+                # The cconv input is of shape [nE, H, C]
+                # The weights are of shape [nE, C, C]
+                # the product is of shape [nE, H, C]
+                # We need to do a batch matrix multiplication for each edge
+
+                messages = torch.einsum('nHC, nCC -> nHC', cconv_input, weights)  # [nE*H, T] or [nE, T]
+                verbosePrint(f'\tCConv Messages shape before output projection: {messages.shape} [nE, {"H, " if self.gnn_per_head else ""}T]', self.verbose)
+
+
+                if self.cconv_use_latent_proj:
+                    verbosePrint(f'\tCConv input shape: {cconv_input.shape} [nE, {"H, " if self.gnn_per_head else ""}L]', self.verbose)
+                    messages  = self.messageLatentOutputProjection(messages)  # [nE*H, T] or [nE, T]
+                    verbosePrint(f'\tCConv output projection shape: {messages.shape} [nE, {"H, " if self.gnn_per_head else ""}T]', self.verbose)
+
+                messages = messages.view(numEdges, self.multi_heads, -1)  # [nE, H, T]
+                verbosePrint(f'\tGenerated Messages shape: {messages.shape} [nE, {"H, " if self.gnn_per_head else ""}T]', self.verbose)
+
+            if self.gnn_per_head:
+                final_messages = messages.permute(1, 0, 2)  # [H, nE, T]
+                verbosePrint(f'\tPermuted Messages shape for heads: {final_messages.shape} [H, nE, T]', self.verbose)
+                checkTensorShape(final_messages, ['H', 'nE', 'T'], shape_dict, checkShapes, 'messages')
+            else:
+                final_messages = messages.view(self.multi_heads, numEdges, self.transformer_features)  # [H, nE, T]
+                verbosePrint(f'\tReshaped Messages shape for heads: {final_messages.shape} [H, nE, T]', self.verbose)
+                checkTensorShape(final_messages, ['H', 'nE', 'T'], shape_dict, checkShapes, 'messages')
+
+            # raise NotImplementedError('Only transformer message mode is implemented yet')
+
         else:
             raise NotImplementedError('Only transformer message mode is implemented yet')
 
