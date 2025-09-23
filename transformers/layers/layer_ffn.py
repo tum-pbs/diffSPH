@@ -113,12 +113,24 @@ class FeedForwardNetworkLayer(torch.nn.Module):
     def forward(self, 
                 inputTokens: torch.Tensor, # Shape: [num_tokens, input_dim] or [batch_size, num_tokens, input_dim]
                 ):
+        
+        batch_size = 1
+        if inputTokens.dim() == 3:
+            batch_size = inputTokens.shape[0]
+            numTokens = inputTokens.shape[1]
+            numInputDim = inputTokens.shape[2]
+        else:
+            numTokens = inputTokens.shape[0]
+            numInputDim = inputTokens.shape[1]
+
+        inputTokens_ = inputTokens.view(batch_size, -1, numInputDim)  # Shape: [batch_size * num_tokens, input_dim] or [num_tokens, input_dim]
+
         verbosePrint(f'Running Input Encode Layer...', self.verbose, separator=True)
         verbosePrint(f'\tInput tokens shape: {inputTokens.shape}', self.verbose)
         if self.pre_norm:
-            outputTokens = self.preNormLayer(inputTokens)
+            outputTokens = self.preNormLayer(inputTokens_)
         else:
-            outputTokens = inputTokens
+            outputTokens = inputTokens_
         verbosePrint(f'\tInput tokens shape (after pre-norm): {outputTokens.shape}', self.verbose)
         outputTokens = self.proj(outputTokens)
         verbosePrint(f'\tOutput tokens shape (after FFN): {outputTokens.shape}', self.verbose)
@@ -130,4 +142,7 @@ class FeedForwardNetworkLayer(torch.nn.Module):
         if self.post_norm:
             outputTokens = self.postNormLayer(outputTokens)
         verbosePrint(f'\tOutput tokens shape (after post-norm): {outputTokens.shape}', self.verbose)
+
+        if batch_size is not None:
+            outputTokens = outputTokens.view(batch_size, numTokens, self.output_dim)  # Shape: [batch_size, num_tokens, output_dim]
         return outputTokens
