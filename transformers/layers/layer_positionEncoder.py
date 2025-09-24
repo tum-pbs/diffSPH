@@ -59,7 +59,6 @@ This class encapsulates various parameters that control the behavior of position
 """
 @dataclass
 class BasisEncoderConfig:
-    enabled:            bool            = field(default=False,      metadata={"help": "Enable APB"}) 
     spatial_dim:        int             = field(default=3,          metadata={"help": "Spatial dimensionality of the input positions"})
     
     base_encoding:      bool            = field(default=True,       metadata={"help": "Use basis function encoding"})
@@ -92,6 +91,7 @@ def updateBasisEncoderConfig(config: BasisEncoderConfig, **kwargs) -> BasisEncod
 import itertools
 from math import prod
 import copy
+from .networkUtil import shapeMatch, verbosePrintSpatialTensorStats
 
 def checkBasisDim(
     spatial_dim: int,
@@ -189,19 +189,6 @@ Args:
 """
 from .mapping import map_positions
 
-def verbosePrintSpatialTensorStats(tensor: Tensor, name: str = 'Tensor', verbose: bool = False, verbosePrefix: str = ''):
-    if not verbose:
-        return
-    if tensor.numel() == 0:
-        print(f'{verbosePrefix}{name} is empty')
-        return
-    print(f'{verbosePrefix}{name} shape: {tensor.shape}, min: {tensor.min().item()}, max: {tensor.max().item()}, mean: {tensor.mean().item()}, std: {tensor.std().item()}')
-    for i in range(tensor.shape[-1]):
-        print(f'{verbosePrefix}{name} dim {i}: min: {tensor[...,i].min().item()}, max: {tensor[...,i].max().item()}, mean: {tensor[...,i].mean().item()}, std: {tensor[...,i].std().item()}')
-    lengths = torch.norm(tensor, dim=-1)
-    print(f'{verbosePrefix}{name} lengths: min: {lengths.min().item()}, max: {lengths.max().item()}, mean: {lengths.mean().item()}, std: {lengths.std().item()}')
-    
-
 class BasisEncoder(nn.Module):
     def __init__(self,
                  config: BasisEncoderConfig = BasisEncoderConfig(),
@@ -258,19 +245,8 @@ class BasisEncoder(nn.Module):
         verbosePrintSpatialTensorStats(inputPositions, name='Input Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         # the shape here is either [B,N,D] or [E,D] or [1,E,D]
         # we need to convert to an internal [E,D] shape
-        if len(inputPositions.shape) == 3:
-            mapped = True
-            batches, entries, dim = inputPositions.shape
-            normalizedPositions = inputPositions.view(-1, dim)
-            verbosePrint(f'Input positions have batch dimension: {batches}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-        elif len(inputPositions.shape) == 2:
-            mapped = False
-            entries, dim = inputPositions.shape
-            batches = 1
-            normalizedPositions = inputPositions
-            verbosePrint('Input positions have no batch dimension', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-        else:
-            raise ValueError(f'Input positions must be of shape [B,N,D] or [E,D], got {inputPositions.shape}')
+        normalizedPositions, batches, entries, dim = shapeMatch(inputPositions)
+
         if normalizedPositions.shape[1] != self.config.spatial_dim:
             raise ValueError(f'Input positions dimension {normalizedPositions.shape[1]} does not match configured spatial_dim {self.config.spatial_dim}')
         
@@ -333,7 +309,7 @@ class BasisEncoder(nn.Module):
 
         # now combinedTerms is of shape [E, combinedBasisTerms]
         # map back to [B,N,combinedBasisTerms] or [E,combinedBasisTerms]
-        if mapped:
+        if inputPositions.shape != normalizedPositions.shape:
             verbosePrint(f'Reshaping output to include batch dimension: {batches}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             combinedTerms = combinedTerms.view(batches, -1, combinedTerms.shape[-1])
         # now apply the projection if needed

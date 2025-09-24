@@ -23,63 +23,9 @@ from .networkUtil import verbosePrint
 from .sparse import buildSparseTensor
 from .softmax import softmax
 from .mlp import buildMLPwDict, getDefaultMLPDict
-
+from .networkUtil import checkTensorShape
 
 from typing import List, Optional
-
-def checkTensorShape(tensor: Tensor, expected_shape: List[str], shape_dict: dict, verbose: bool = False, logName: Optional[str] = None):
-    if tensor is None:
-        return
-    # if verbose:
-    #     name = f' for {logName}' if logName is not None else ''
-    #     print(f'Checking tensor{name} shape: {tensor.shape} against expected: {expected_shape}')
-    shape = tensor.shape
-    if len(shape) != len(expected_shape):
-        raise ValueError(f'Expected tensor to have {len(expected_shape)} dimensions, got {len(shape)} dimensions with shape {shape}')
-    for i, dim in enumerate(expected_shape):
-        if isinstance(dim, int):
-            if shape[i] != dim:
-                raise ValueError(f'Expected dimension {i} of tensor to have size {dim}, got {shape[i]}')
-        elif '*' in dim or '//' in dim:
-            LHS, RHS = dim.split('//') if '//' in dim else dim.split('*')
-            if LHS.isdigit() and RHS.isdigit():
-                lhs = int(LHS)
-                rhs = int(RHS)
-                if shape[i] % rhs != 0 or shape[i] // rhs != lhs:
-                    raise ValueError(f'Expected dimension {i} of tensor to have size {lhs}*{rhs}, got {shape[i]}')  
-            elif LHS.isdigit() and RHS in shape_dict:
-                lhs = int(LHS)
-                rhs = shape_dict[RHS]
-                if rhs is not None and (shape[i] % rhs != 0 or shape[i] // rhs != lhs):
-                    raise ValueError(f'Expected dimension {i} of tensor to have size {lhs}*{rhs} ({RHS}), got {shape[i]}')  
-            elif LHS in shape_dict and RHS.isdigit():
-                lhs = shape_dict[LHS]
-                rhs = int(RHS)
-                if lhs is not None and (shape[i] % rhs != 0 or shape[i] // rhs != lhs):
-                    raise ValueError(f'Expected dimension {i} of tensor to have size {lhs} ({LHS})*{rhs}, got {shape[i]}')
-            elif LHS in shape_dict and RHS in shape_dict:
-                lhs = shape_dict[LHS]
-                rhs = shape_dict[RHS]
-                if lhs is not None and rhs is not None and (shape[i] % rhs != 0 or shape[i] // rhs != lhs):
-                    raise ValueError(f'Expected dimension {i} of tensor to have size {lhs} ({LHS})*{rhs} ({RHS}), got {shape[i]}')
-            else:
-                raise ValueError(f'Unknown dimension specifier: {dim}')
-        else:
-            if dim.isdigit():
-                expected_dim = int(dim)
-                if shape[i] != expected_dim:
-                    raise ValueError(f'Expected dimension {i} of tensor to have size {expected_dim}, got {shape[i]}')
-            elif dim in shape_dict:
-                expected_dim = shape_dict[dim]
-                if expected_dim is not None and shape[i] != expected_dim:
-                    raise ValueError(f'Expected dimension {i} of tensor to have size {expected_dim} ({dim}), got {shape[i]}')
-            elif dim == '*':
-                continue
-            else:
-                raise ValueError(f'Unknown dimension specifier: {dim}')
-    if verbose:
-        name = f' for {logName}' if logName is not None else ''
-        print(f'Tensor{name} has expected shape: {shape}')
 
 """
 This is a message passing layer that is part of the transformer architecture, however, it is expanded in functionality

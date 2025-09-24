@@ -98,7 +98,7 @@ def mapToSpherePreserving(positions):
 def map_positions(edge_attr, coordinateMapping):
     if edge_attr.shape[1] > 1:
         expanded = torch.hstack((edge_attr, torch.zeros_like(edge_attr[:,0])[:,None])) if edge_attr.shape[1] == 2 else edge_attr
-        if coordinateMapping == 'polar':
+        if coordinateMapping == 'polar' or coordinateMapping == 'spherical':
             spherical = mapToSpherical(expanded)
             if expanded.shape[1] == 2:
                 mapped = torch.vstack((spherical[:,0] * 2. - 1.,spherical[:,1] / np.pi)).mT

@@ -1,4 +1,5 @@
 import warnings
+import copy
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -11,10 +12,10 @@ except ImportError:
 from typing import Optional, Union, Tuple
  
 
-from .activation import getActivationLayer
+from .activation import getActivationFromString, getActivationLayer
 from .basisFunctions import basisEncoderLayer
 from .layer_positionEncoder import BasisEncoder
-from .networkUtil import verbosePrint
+from .networkUtil import verbosePrint, verboseBannerPrint
 from .sparse import buildSparseTensor
 from .softmax import softmax
 from .mlp import buildMLPwDict, getDefaultMLPDict
@@ -64,183 +65,266 @@ which encodes the absolute position of each token in the input sequence.
 Note: APB violates translation equivariance, so it should be used with caution in tasks where
 translation equivariance is important, e.g., physics-based tasks.
 """
-@dataclass
-class APBConfig:
-    enabled:            bool            = field(default=False,      metadata={"help": "Enable APB"}) 
-    scaled_positions:   bool            = field(default=False,      metadata={"help": "Scale positions using an external scaling parameter"})
-    multiplicative:     bool            = field(default=False,      metadata={"help": "Use multiplicative encoding"})
-    base_encoding:      bool            = field(default=True,       metadata={"help": "Use basis function encoding"})
-    base_function:      str             = field(default='fourier',  metadata={"help": "Basis function type"})
-    base_terms:         int             = field(default=16,         metadata={"help": "Number of basis functions"})
-    base_mode:          str             = field(default='cat',      metadata={"help": "Basis function mode"})
-    linear:             bool            = field(default=True,       metadata={"help": "Use linear encoding for APB"})
-    mlp_dict:           Optional[dict]  = field(default=None,       metadata={"help": "MLP architecture for APB"})
 
-@dataclass
-class InputEncodeConfig:
-    input_dim: int = 0
-    output_dim: int = 0
-    spatial_dim: int = 3
-    linear_encode: bool = True
-    encoder_mlp_dict: Optional[dict] = None
-    apb: APBConfig = field(default_factory=APBConfig)
-    verbose: bool = False
+from .layer_positionEncoder import BasisEncoder, BasisEncoderConfig, computeBasisEncoderOutputShape
 
-class InputEncodeLayer(torch.nn.Module):
+@dataclass(slots=True)
+class TokenEncoderConfig:
+    token_input_dim:        int = field(default =0, metadata={"help": "Dimensionality of the input feature vector per token"})
+    token_output_dim:       Optional[int] = field(default = None, metadata={"help": "Dimensionality of the output feature vector per token"})
+    token_latent_dim:       Optional[int] = field(default = None, metadata={"help": "Dimensionality of the latent space feature vector per token. If None, set to token_output_dim"})
+    skip_connection:        bool = field(default=True, metadata={"help": "If True, use skip connection from input to output"})
+
+    projection:             bool = field(default=True, metadata={"help": "If True, project input features to output dimension using a linear layer or MLP"})
+    projection_linear:      bool = field(default=True, metadata={"help": "If True, use a linear layer for input feature projection, if False use an MLP"})
+    projection_mlp_dict:    Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for input feature projection (if projection_linear is False)"})
+
+    position_bias:          Optional[BasisEncoderConfig] = field(default=None, metadata={"help": "Configuration for absolute position bias (APB) encoding. If None, APB is disabled."})
+    position_bias_mixing:   str = field(default='add', metadata={"help": "Mode for combining position bias with input features. Options: 'cat' (concatenate), 'add' (additive), 'mul' (multiplicative), 'mix' (use linear or MLP to combine)"})
+    position_bias_linear:   bool = field(default=True, metadata={"help": "If True, use a linear layer for position bias projection, if False use an MLP"})
+    position_bias_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for position bias projection (if position_bias_linear is False)"})
+
+    use_ffn:                bool = field(default=False, metadata={"help": "If True, use a feed-forward network (FFN) after input encoding"})
+    ffn_linear:             bool = field(default=False, metadata={"help": "If True, use a linear layer for the FFN, if False use an MLP"})
+    ffn_mlp_dict:           Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for the FFN (if ffn_linear is False)"})
+    pre_norm:               bool = field(default=False, metadata={"help": "If True, apply layer normalization before the feed-forward network"})
+    post_norm:              bool = field(default=False, metadata={"help": "If True, apply layer normalization after the feed-forward network"})
+
+    final_activation:    Optional[str] = field(default=None, metadata={"help": "Activation function to apply after the FFN. Options: None, 'relu', 'gelu', etc."})
+
+
+from .networkUtil import shapeMatch, verbosePrintSpatialTensorStats, mergeConfigWithKwargs, checkTensorShape
+
+class TokenEncoder(torch.nn.Module):
     def __init__(self, 
-                 input_dim: int,
-                 output_dim: int,
-                 spatial_dim: int = 3,
-                 
-                 linearEncode: bool = True,
-                 encoderMLPDict: Optional[dict] = None,
-
-                 absolutePositionBias: bool = False,
-                 absolutePositionBiasScaledPositions: bool = False,
-                 absolutePositionBiasMultiplicative: bool = False,
-                 absolutePositionBiasBaseEncoding: bool = True,
-                 absolutePositionBiasBaseFunction: str = 'fourier',
-                 absolutePositionBiasBaseTerms: int = 16,
-                 absolutePositionBiasBaseMode: str = 'cat', 
-                 absolutePositionBiasLinear: bool = True, 
-                 absolutePositionBiasMLPDict: Optional[dict] = None,
-
-                 verbose: bool = False
+                 token_input_dim:         int = field(metadata={"help": "Dimensionality of the input feature vector per token"}),
+                 config: Optional[TokenEncoderConfig] = None,
+                 verbose: bool = False,
+                 verbosePrefix: str = '',
+                 **kwargs
     ):
-        super(InputEncodeLayer, self).__init__()
-        verbosePrint('Initializing Input Encode Layer...', verbose)
+        super(TokenEncoder, self).__init__()
+        verboseBannerPrint('Initializing Input Encode Layer...', verbose)
 
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.spatial_dim = spatial_dim
-        verbosePrint(f'\tDimensions: input_dim={self.input_dim}, output_dim={self.output_dim}, spatial_dim={self.spatial_dim}', verbose)
-
-        self.linearEncode = linearEncode
-        self.encoderMLPDict = encoderMLPDict if encoderMLPDict is not None else getDefaultMLPDict()
-        verbosePrint(f'\tInput feature encoding: linearEncode={self.linearEncode}', verbose)
-        verbosePrint(f'\tInput feature encoding: encoderMLPDict={self.encoderMLPDict}', verbose)
-
-        self.absolutePositionBias = absolutePositionBias
-        self.absolutePositionBiasScaledPositions = absolutePositionBiasScaledPositions
-        self.absolutePositionBiasMultiplicative = absolutePositionBiasMultiplicative
-        self.absolutePositionBiasBaseEncoding = absolutePositionBiasBaseEncoding
-        self.absolutePositionBiasBaseFunction = absolutePositionBiasBaseFunction
-        self.absolutePositionBiasBaseTerms = absolutePositionBiasBaseTerms
-        self.absolutePositionBiasBaseMode = absolutePositionBiasBaseMode
-        self.absolutePositionBiasLinear = absolutePositionBiasLinear
-        self.absolutePositionBiasMLPDict = absolutePositionBiasMLPDict if absolutePositionBiasMLPDict is not None else getDefaultMLPDict()
-        verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBias={self.absolutePositionBias}', verbose)
-        if self.absolutePositionBias:
-            verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBiasScaledPositions={self.absolutePositionBiasScaledPositions}', verbose)
-            verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBiasMultiplicative={self.absolutePositionBiasMultiplicative}', verbose)
-            verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBiasBaseEncoding={self.absolutePositionBiasBaseEncoding}', verbose)
-            if self.absolutePositionBiasBaseEncoding:
-                verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBiasBaseFunction={self.absolutePositionBiasBaseFunction}', verbose)
-                verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBiasBaseTerms={self.absolutePositionBiasBaseTerms}', verbose)
-                verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBiasBaseMode={self.absolutePositionBiasBaseMode}', verbose)
-            verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBiasLinear={self.absolutePositionBiasLinear}', verbose)
-            verbosePrint(f'\tAbsolute Position Bias (APB): absolutePositionBiasMLPDict={self.absolutePositionBiasMLPDict}', verbose)
-
-        self.verbose = verbose
-
-        # Input feature encoding
-        verbosePrint(f'\tInput feature encoding:', self.verbose, separator=True)
-        if self.linearEncode:
-            verbosePrint('\t\tUsing linear layer for input feature encoding', self.verbose)
-            self.inputEncoder = nn.Linear(self.input_dim, self.output_dim, bias=False)
+        if config is None:
+            config = TokenEncoderConfig(token_input_dim=token_input_dim)
         else:
-            verbosePrint('\t\tUsing MLP for input feature encoding', self.verbose)
-            if self.encoderMLPDict is not None:
-                self.inputEncoder = buildMLPwDict({
-                    'inputFeatures': self.input_dim,
-                    'output': self.output_dim,
-                    **self.encoderMLPDict
-                }, verbose = verbose, verbosePrefix='\t\t')
-            else:
-                self.inputEncoder = buildMLPwDict({
-                    'inputFeatures': self.input_dim,
-                    'output': self.output_dim,
-                }, verbose = verbose, verbosePrefix='\t\t')
-            numberOfParameters = sum(p.numel() for p in self.inputEncoder.parameters())
-            verbosePrint(f'\t\tNumber of parameters in input encoder MLP: {numberOfParameters}', self.verbose)
+            config = copy.deepcopy(config)
+            config.token_input_dim = token_input_dim
+        self.config = mergeConfigWithKwargs(config, **kwargs)
+        self.verbose = verbose
+        self.verbosePrefix = verbosePrefix
 
-        self.apbEncoder = None
-        self.apbBasisEncoderOutputDim = None
-        # Absolute position bias encoding
-        if self.absolutePositionBias:   
-            verbosePrint(f'\tAbsolute position bias (APB) encoding:', self.verbose, separator=True)
-            if self.absolutePositionBiasScaledPositions:
-                verbosePrint(f'\t\tUsing scaled positions for APB encoding', self.verbose)
-            if self.absolutePositionBiasMultiplicative:
-                verbosePrint(f'\t\tUsing multiplicative APB', self.verbose)
+        self.input_token_dim = self.config.token_input_dim
+        self.output_token_dim = self.config.token_output_dim if self.config.token_output_dim is not None else self.config.token_input_dim
+        self.latent_token_dim = self.config.token_latent_dim if self.config.token_latent_dim is not None else self.output_token_dim
+        verbosePrint(f'\tToken dimensions: input_token_dim={self.input_token_dim}, output_token_dim={self.output_token_dim}, latent_token_dim={self.latent_token_dim}', self.verbose, self.verbosePrefix)
+
+        if self.output_token_dim != self.latent_token_dim and not self.config.use_ffn:
+            raise ValueError(f'Output token dim ({self.output_token_dim}) and latent token dim ({self.latent_token_dim}) are different, but FFN is disabled! Cannot project latent to output space.')
+
+        ### Position Bias (APB) Setup ###
+        self.latent_out_dim = self.latent_token_dim
+        if self.config.position_bias is not None:
+            positionBiasDim = computeBasisEncoderOutputShape(self.config.position_bias, self.verbose, self.verbosePrefix)[-1]
+            verbosePrint(f'\tPosition bias encoding enabled with output dimension {positionBiasDim}', self.verbose, self.verbosePrefix)
+            if self.config.position_bias_mixing in ['add', 'mul']:
+                if self.latent_token_dim != positionBiasDim:
+                    raise ValueError(f'Latent token dimension {self.latent_token_dim} does not match position bias output dimension {positionBiasDim}')
+            elif self.config.position_bias_mixing == 'cat':
+                self.latent_out_dim += positionBiasDim
+                verbosePrint(f'\tPosition bias concatenation increases latent output dimension to {self.latent_out_dim}', self.verbose, self.verbosePrefix)
+            elif self.config.position_bias_mixing == 'mix':
+                self.latent_out_dim = self.latent_token_dim
+                verbosePrint(f'\tPosition bias mixing keeps latent output dimension at {self.latent_out_dim}', self.verbose, self.verbosePrefix)
             else:
-                verbosePrint(f'\t\tUsing additive APB', self.verbose)
+                raise ValueError(f'Invalid position_bias_mixing mode: {self.config.position_bias_mixing}')
             
-            self.apbEncoder = BasisEncoder(
-                spatial_dim = self.spatial_dim,
-                basis_terms = self.absolutePositionBiasBaseTerms,
-                basis_function = self.absolutePositionBiasBaseFunction,
-                skip_basis = not self.absolutePositionBiasBaseEncoding,
-                mode = self.absolutePositionBiasBaseMode,
-                project_out = True,
-                out_dim = self.output_dim,
-                project_linear = self.absolutePositionBiasLinear,
-                project_mlp_properties = self.absolutePositionBiasMLPDict,
-                
-                verbose = self.verbose, 
-                verbosePrefix = '\t\t'
-            )
-            self.apbBasisEncoderOutputDim = self.apbEncoder.outputShape
+            self.apbEncoder = BasisEncoder(self.config.position_bias, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+            self.apbDim = positionBiasDim
+        else:
+            self.apbEncoder = None
+            self.apbDim = 0
+            verbosePrint(f'\tPosition bias encoding disabled', self.verbose, self.verbosePrefix)
 
-            numberOfParameters = sum(p.numel() for p in self.apbEncoder.parameters())
-            verbosePrint(f'\t\tNumber of parameters in APB encoder MLP: {numberOfParameters}', self.verbose)
+        ### PB Mixing Setup ###
+        if self.config.position_bias is not None and self.config.position_bias_mixing == 'mix':
+            if self.config.position_bias_linear:
+                verbosePrint(f'\tUsing linear layer for position bias mixing', self.verbose, self.verbosePrefix)
+                self.pbMixer = nn.Linear(self.latent_token_dim + self.apbDim, self.latent_token_dim, bias=False)
+            else:
+                verbosePrint(f'\tUsing MLP for position bias mixing', self.verbose, self.verbosePrefix)
+                mlpDict = self.config.position_bias_mlp_dict if self.config.position_bias_mlp_dict is not None else getDefaultMLPDict()
+                self.pbMixer = buildMLPwDict(mlpDict, inputDim=self.latent_token_dim + self.apbDim, outputDim=self.latent_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+                numberOfParameters = sum(p.numel() for p in self.pbMixer.parameters())
+                verbosePrint(f'\tNumber of parameters in position bias mixer MLP: {numberOfParameters}', self.verbose, self.verbosePrefix)
+        else:
+            self.pbMixer = None
+
+        ### Input Feature Encoding Setup ###
+        if self.config.projection:
+            verbosePrint(f'\tInput feature projection enabled [{self.input_token_dim} -> {self.latent_token_dim}]', self.verbose, self.verbosePrefix)
+            if self.config.projection_linear:
+                verbosePrint(f'\tUsing linear layer for input feature projection', self.verbose, self.verbosePrefix)
+                self.input_encoder = nn.Linear(self.input_token_dim, self.latent_token_dim, bias=False)
+            else:
+                verbosePrint(f'\tUsing MLP for input feature projection', self.verbose, self.verbosePrefix)
+                mlpDict = self.config.projection_mlp_dict if self.config.projection_mlp_dict is not None else getDefaultMLPDict()
+                self.input_encoder = buildMLPwDict(mlpDict, inputDim=self.input_token_dim, outputDim=self.latent_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+                numberOfParameters = sum(p.numel() for p in self.input_encoder.parameters())
+                verbosePrint(f'\tNumber of parameters in input encoder MLP: {numberOfParameters}', self.verbose, self.verbosePrefix)
+
+        ## Skip Connection Setup ##
+        if self.config.skip_connection:
+            if self.input_token_dim != self.output_token_dim:
+                warnings.warn(f'Input token dim ({self.input_token_dim}) and output token dim ({self.output_token_dim}) are different, skipping connection will not be possible!')
+                self.config.skip_connection = False
+            verbosePrint(f'\tUsing skip connection from input to output', self.verbose, self.verbosePrefix)
+
+        ### FFN Setup ###
+        if self.config.use_ffn:
+            verbosePrint(f'\tFeed Forward Network (FFN) enabled [{self.latent_out_dim} -> {self.output_token_dim}]', self.verbose, self.verbosePrefix)
+
+            if self.config.pre_norm:
+                self.preNormLayer = nn.LayerNorm(self.latent_out_dim)
+                verbosePrint(f'\tUsing pre-norm layer before FFN', self.verbose, self.verbosePrefix)
+            if self.config.ffn_linear:
+                verbosePrint(f'\tUsing linear layer for FFN', self.verbose, self.verbosePrefix)
+                self.ffn = nn.Linear(self.latent_out_dim, self.output_token_dim, bias=False)
+            else:
+                verbosePrint(f'\tUsing MLP for FFN', self.verbose, self.verbosePrefix)
+                mlpDict = self.config.ffn_mlp_dict if self.config.ffn_mlp_dict is not None else getDefaultMLPDict()
+                self.ffn = buildMLPwDict(mlpDict, inputDim=self.latent_out_dim, outputDim=self.output_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+                numberOfParameters = sum(p.numel() for p in self.ffn.parameters())
+                verbosePrint(f'\tNumber of parameters in FFN MLP: {numberOfParameters}', self.verbose, self.verbosePrefix)
+
+            if self.config.post_norm:
+                self.postNormLayer = nn.LayerNorm(self.output_token_dim)
+                verbosePrint(f'\tUsing post-norm layer after FFN', self.verbose, self.verbosePrefix)
+
+        ### Activation Setup ###
+        self.final_activation = nn.Identity()
+        if self.config.final_activation is not None:
+            self.final_activation, act_name = getActivationFromString(self.config.final_activation)
 
         verbosePrint(f'Done initializing Input Encode Layer.', self.verbose, separator=True)
         
-        
-
     def forward(self, 
                 inputTokens: torch.Tensor, # Shape: [num_tokens, input_dim]
-                inputPositions: torch.Tensor, # Shape: [num_tokens, spatial_dim],
-                cutoffRadius: Optional[float] = None # Shape: [num_tokens]
+                inputPositions: Optional[torch.Tensor], # Shape: [num_tokens, spatial_dim],
                 ):
-        verbosePrint(f'Running Input Encode Layer...', self.verbose, separator=True)
+        verboseBannerPrint(f'Running Input Encode Layer...', self.verbose)
         verbosePrint(f'\tInput tokens shape: {inputTokens.shape}', self.verbose)
-        verbosePrint(f'\tInput positions shape: {inputPositions.shape}', self.verbose)
-        if cutoffRadius is not None:
-            verbosePrint(f'\tCutoff radius shape: {cutoffRadius.shape}', self.verbose)
+        if inputPositions is not None:
+            verbosePrint(f'\tInput positions shape: {inputPositions.shape}', self.verbose)
 
-        verbosePrint(f'\tEncoding input features...', self.verbose, separator=True)
-        encodedFeatures = self.inputEncoder(inputTokens)
+
+        normalizedTokens, batchSize, numTokens, featureDim = shapeMatch(inputTokens)
+        if inputPositions is not None:
+            normalizedPositions, _, _, spatial_dim = shapeMatch(inputPositions)
+        else:
+            spatial_dim = 0
+
+        shapeDict = {
+            'N': numTokens,
+            'F': featureDim,
+            'B': batchSize,
+            'D': spatial_dim,
+            'L': self.latent_token_dim,
+            'O': self.output_token_dim,
+            'APB': self.apbDim
+        }
+
+        ######################################################################################
+        #### Step 1: Project input features to latent space
+        #### Step 2: Encode absolute position bias (APB)
+        #### Step 3: Combine encoded features and APB
+        #### Step 4: Apply FFN (if enabled)
+        #### Step 5: Apply final activation (if specified)
+        ######################################################################################
+
+        ################################################################################
+        #                     Step 1: Project input features to latent space            #
+        ################################################################################
+        verbosePrint(f'\tProjecting input features to latent space...', self.verbose, separator=True)
+        if self.config.projection:
+            encodedFeatures = self.input_encoder(normalizedTokens)
+        else:
+            encodedFeatures = normalizedTokens
         verbosePrint(f'\tEncoded features shape: {encodedFeatures.shape}', self.verbose)
+        checkTensorShape(encodedFeatures, ['N*B', 'L'], shapeDict, False, 'encodedFeatures')
 
-        if self.absolutePositionBias:
-            verbosePrint(f'\tEncoding absolute position bias (APB)...', self.verbose, separator=True)
-            encodedPositions = inputPositions
-            if self.absolutePositionBiasScaledPositions:
-               verbosePrint(f'\tScaling positions by cutoff radius for APB encoding', self.verbose)
-               encodedPositions = inputPositions / cutoffRadius.view(-1,1)
+        ################################################################################
+        #                     Step 2: Encode absolute position bias (APB)                #
+        ################################################################################
+        if self.config.position_bias is not None:
+            positionBias = self.apbEncoder(normalizedPositions)
+            verbosePrint(f'\tPosition bias shape: {positionBias.shape}', self.verbose)
+            checkTensorShape(positionBias, ['N*B', 'APB'], shapeDict, False, 'positionBias')
+        else:
+            positionBias = None
 
-            # if self.absolutePositionBiasBaseEncoding:
-            #     verbosePrint(f'\tUsing basis function encoding for APB', self.verbose)
-            #     encodedPositions = self.apbBasisEncoder(encodedPositions)
-            # verbosePrint(f'\tEncoded positions shape (before flattening): {encodedPositions.shape}', self.verbose)
+        ################################################################################
+        #                     Step 3: Combine encoded features and APB                  #
+        ################################################################################
 
-            # if len(encodedPositions.shape) > 2:
-            #     verbosePrint(f'\tFlattening encoded positions for APB', self.verbose)
-            #     encodedPositions = encodedPositions.view(encodedPositions.shape[0], -1)
-            # verbosePrint(f'\tEncoded positions shape (after flattening): {encodedPositions.shape}', self.verbose)
-
-            verbosePrint(f'\tPassing encoded positions through APB encoder', self.verbose)
-            apb = self.apbEncoder(encodedPositions)
-            verbosePrint(f'\tAPB shape: {apb.shape}', self.verbose)
-
-            if self.absolutePositionBiasMultiplicative:
-                verbosePrint(f'\tUsing multiplicative APB', self.verbose)
-                encodedFeatures = encodedFeatures * apb
+        if positionBias is not None:
+            verbosePrint(f'\tCombining encoded features and position bias using mode: {self.config.position_bias_mixing}', self.verbose, separator=True)
+            if self.config.position_bias_mixing == 'add':
+                encodedFeatures = encodedFeatures + positionBias
+            elif self.config.position_bias_mixing == 'mul':
+                encodedFeatures = encodedFeatures * positionBias
+            elif self.config.position_bias_mixing == 'cat':
+                encodedFeatures = torch.cat((encodedFeatures, positionBias), dim=-1)
+            elif self.config.position_bias_mixing == 'mix':
+                combined = torch.cat((encodedFeatures, positionBias), dim=-1)
+                encodedFeatures = self.pbMixer(combined)
             else:
-                verbosePrint(f'\tUsing additive APB', self.verbose)
-                encodedFeatures = encodedFeatures + apb
-            verbosePrint(f'\tFeatures shape after adding APB: {encodedFeatures.shape}', self.verbose)
+                raise ValueError(f'Invalid position_bias_mixing mode: {self.config.position_bias_mixing}')
+            verbosePrint(f'\tCombined features shape: {encodedFeatures.shape}', self.verbose)
+            checkTensorShape(encodedFeatures, ['N*B', 'L'] if self.config.position_bias_mixing != 'cat' else ['N*B', 'L+APB'], shapeDict, False, 'combinedFeatures')
+
+
+        ################################################################################
+        #                     Step 4: Apply FFN (if enabled)                             #
+        ################################################################################
+        if self.config.use_ffn:
+            verbosePrint(f'\tApplying Feed Forward Network (FFN)...', self.verbose, separator=True)
+            if self.config.pre_norm:
+                verbosePrint(f'\tApplying pre-norm layer before FFN', self.verbose)
+                encodedFeatures = self.preNormLayer(encodedFeatures)
+            encodedFeatures = self.ffn(encodedFeatures)
+            verbosePrint(f'\tFFN output shape: {encodedFeatures.shape}', self.verbose)
+            checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'ffnOutput')
+            if self.config.post_norm:
+                verbosePrint(f'\tApplying post-norm layer after FFN', self.verbose)
+                encodedFeatures = self.postNormLayer(encodedFeatures)
+                verbosePrint(f'\tPost-norm output shape: {encodedFeatures.shape}', self.verbose)
+                checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'postNormOutput') 
+
+        ################################################################################
+        #                     Step 5: Apply final activation (if specified)              #
+        ################################################################################
+        if self.config.final_activation is not None:
+            verbosePrint(f'\tApplying final activation: {self.config.final_activation}', self.verbose, separator=True)
+            encodedFeatures = self.final_activation(encodedFeatures)
+            verbosePrint(f'\tFinal output shape after activation: {encodedFeatures.shape}', self.verbose)
+            checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'finalOutput')
+        # Reshape back to [B, N, O] if needed
+        if normalizedTokens.shape != inputTokens.shape:
+            verbosePrint(f'\tReshaping output to include batch dimension: {batchSize}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            encodedFeatures = encodedFeatures.view(batchSize, -1, encodedFeatures.shape[-1])
+
+        if self.config.skip_connection:
+            verbosePrint(f'\tApplying skip connection from input to output', self.verbose, separator=True)
+            if encodedFeatures.shape[-1] != inputTokens.shape[-1]:
+                raise ValueError(f'Cannot apply skip connection, output feature dimension {encodedFeatures.shape[-1]} does not match input feature dimension {inputTokens.shape[-1]}')
+            encodedFeatures = encodedFeatures + inputTokens
+            verbosePrint(f'\tOutput shape after skip connection: {encodedFeatures.shape}', self.verbose)
+            checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'skipConnectionOutput')
+
+        verbosePrint(f'\tOutput encoded features shape: {encodedFeatures.shape}', self.verbose)
         verbosePrint(f'Done running Input Encode Layer.', self.verbose, separator=True)
+
         return encodedFeatures # Shape: [num_tokens, output_dim]
+
