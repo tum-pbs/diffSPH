@@ -65,6 +65,55 @@ from .windows import getWindowFunction
 # Window Function Parameters:
 # - windowFunction: bool - If True, a window function is applied to the attention based on the edge parameters
 # - windowFunctionType: str - Type of window function to use ('cubic', 'quartic', etc.)
+
+
+
+from typing import Optional, Union, Tuple
+from dataclasses import dataclass, field
+
+@dataclass(slots=True)
+class AttentionMechanismConfig:
+    mechanism: str = field(default='dot', metadata={"help": "Type of attention mechanism to use ('dot', 'scaled_dot', 'mix', 'cosine')"})
+
+    dropout: float = field(default=0.0, metadata={"help": "Dropout rate for the attention scores"})
+    scaling: bool = field(default=True, metadata={"help": "Whether to scale the attention scores by sqrt(latent_dim / num_heads)"})
+    clipping: bool = field(default=False, metadata={"help": "Whether to clip the attention scores"})
+    clipping_value: float = field(default=1.0, metadata={"help": "The value to clip the attention scores to (if clipping is True)"})
+    activation: str = field(default='leaky_relu(0.2)', metadata={"help": "Activation function to use for attention score MLP"})
+
+    mix_linear : bool = field(default=True, metadata={"help": "Whether to use a linear projection from the query and key tokens to the attention scores instead of an MLP"})
+    mix_mlp_dict : Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for attention score computation (if mix_linear is False)"})
+
+@dataclass(slots=True)
+class AttentionLayerConfig:
+    token_input_dim: int = field(default=0, metadata={"help": "Dimensionality of the input feature vector per token"})
+    edge_dim: int = field(default=0, metadata={"help": "Dimensionality of the edge feature vector per edge"})
+    spatial_dim: int = field(default=0, metadata={"help": "Dimensionality of the position vector per token (e.g. 3 for 3D positions)"})
+
+    attention_heads: int = field(default=4, metadata={"help": "Number of attention heads"})
+    attention_features: Optional[int] = field(default=None, metadata={"help": "Dimensionality of the attention features per head (if None, set to token_input_dim / attention_heads)"})
+    attention_mechanism: AttentionMechanismConfig = field(default_factory=AttentionMechanismConfig, metadata={"help": "Configuration for the attention mechanism"})
+    attention_softmax: bool = field(default=True, metadata={"help": "Whether to apply softmax to the attention scores"})
+
+    encode_tokens: bool = field(default=True, metadata={"help": "Whether to encode the query and key tokens"})
+    encode_tokens_linear: bool = field(default=True, metadata={"help": "Whether to use a linear layer for token encoding (if False, use MLP)"})
+    encode_tokens_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for token encoding (if encode_tokens_linear is False)"})
+    encode_tokens_shared: bool = field(default=False, metadata={"help": "Whether to share the token encoding MLP between query and key"})
+    encode_using_cconv: bool = field(default=False, metadata={"help": "Whether to use continuous convolution mode (use edge features to compute W_Q and W_K)"})
+
+    position_bias: bool = field(default=True, metadata={"help": "Whether to use relative position bias"})
+    position_bias_mixing: str = field(default='add', metadata={"help": "Whether to add or multiply the position bias to the attention scores ('add', 'mul')"})
+    position_bias_after_attention: bool = field(default=True, metadata={"help": "Whether to add the position bias after the attention scores (if False, add before softmax)"})
+    position_bias_per_head: bool = field(default=True, metadata={"help": "Whether to have a separate position bias per attention head (if False, use a single position bias for all heads)"})
+
+    window_function: bool = field(default=False, metadata={"help": "Whether to apply a window function to the attention scores"})
+    window_function_type: str = field(default='cubicSpline', metadata={"help": "Type of window function to use ('cubicSpline', 'wendland4', etc.)"})
+    window_function_before_softmax: bool = field(default=True, metadata={"help": "Whether to apply the window function before the softmax (if False, apply after softmax)"})
+    window_function_mixing : str = field(default='mul', metadata={"help": "Whether to add or multiply the window function to the attention scores ('add', 'mul')"})
+
+
+
+
 class AttentionMechanismLayer(torch.nn.Module):
     def __init__(self, 
                     latent_dim: int,

@@ -1,4 +1,4 @@
-from layers.layer_inputEncoder import InputEncodeLayer
+from transformers.layers.layer_tokenEncoder import InputEncodeLayer
 from layers.layer_attentionMechanism import AttentionMechanismLayer
 from layers.layer_messagePassing import MessagePassingLayer
 from layers.layer_ffn import FeedForwardNetworkLayer

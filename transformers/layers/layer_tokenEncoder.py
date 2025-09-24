@@ -87,6 +87,7 @@ class TokenEncoderConfig:
     use_ffn:                bool = field(default=False, metadata={"help": "If True, use a feed-forward network (FFN) after input encoding"})
     ffn_linear:             bool = field(default=False, metadata={"help": "If True, use a linear layer for the FFN, if False use an MLP"})
     ffn_mlp_dict:           Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for the FFN (if ffn_linear is False)"})
+    ffn_skip_connection:    bool = field(default=False, metadata={"help": "If True, use skip connection in the FFN"})
     pre_norm:               bool = field(default=False, metadata={"help": "If True, apply layer normalization before the feed-forward network"})
     post_norm:              bool = field(default=False, metadata={"help": "If True, apply layer normalization after the feed-forward network"})
 
@@ -198,6 +199,12 @@ class TokenEncoder(torch.nn.Module):
                 numberOfParameters = sum(p.numel() for p in self.ffn.parameters())
                 verbosePrint(f'\tNumber of parameters in FFN MLP: {numberOfParameters}', self.verbose, self.verbosePrefix)
 
+            if self.config.ffn_skip_connection:
+                if self.latent_out_dim != self.output_token_dim:
+                    warnings.warn(f'Cannot use skip connection in FFN, latent output dim ({self.latent_out_dim}) and output token dim ({self.output_token_dim}) are different!')
+                    self.config.ffn_skip_connection = False
+                verbosePrint(f'\tUsing skip connection in FFN', self.verbose, self.verbosePrefix)
+
             if self.config.post_norm:
                 self.postNormLayer = nn.LayerNorm(self.output_token_dim)
                 verbosePrint(f'\tUsing post-norm layer after FFN', self.verbose, self.verbosePrefix)
@@ -289,18 +296,28 @@ class TokenEncoder(torch.nn.Module):
         #                     Step 4: Apply FFN (if enabled)                             #
         ################################################################################
         if self.config.use_ffn:
+            ffn_input_features = encodedFeatures
             verbosePrint(f'\tApplying Feed Forward Network (FFN)...', self.verbose, separator=True)
             if self.config.pre_norm:
                 verbosePrint(f'\tApplying pre-norm layer before FFN', self.verbose)
-                encodedFeatures = self.preNormLayer(encodedFeatures)
-            encodedFeatures = self.ffn(encodedFeatures)
-            verbosePrint(f'\tFFN output shape: {encodedFeatures.shape}', self.verbose)
-            checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'ffnOutput')
+                ffn_input_features = self.preNormLayer(encodedFeatures)
+            ffn_output_features = self.ffn(ffn_input_features)
+            verbosePrint(f'\tFFN output shape: {ffn_output_features.shape}', self.verbose)
+            checkTensorShape(ffn_output_features, ['N*B', 'O'], shapeDict, False, 'ffnOutput')
+
+            if self.config.ffn_skip_connection:
+                verbosePrint(f'\tApplying skip connection in FFN', self.verbose)
+                ffn_output_features = ffn_output_features + encodedFeatures
+                verbosePrint(f'\tFFN output shape after skip connection: {ffn_output_features.shape}', self.verbose)
+                checkTensorShape(ffn_output_features, ['N*B', 'O'], shapeDict, False, 'ffnSkipConnectionOutput')
+            
             if self.config.post_norm:
                 verbosePrint(f'\tApplying post-norm layer after FFN', self.verbose)
-                encodedFeatures = self.postNormLayer(encodedFeatures)
+                ffn_output_features = self.postNormLayer(ffn_output_features)
                 verbosePrint(f'\tPost-norm output shape: {encodedFeatures.shape}', self.verbose)
                 checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'postNormOutput') 
+
+            encodedFeatures = ffn_output_features
 
         ################################################################################
         #                     Step 5: Apply final activation (if specified)              #
