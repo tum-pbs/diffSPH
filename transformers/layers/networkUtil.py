@@ -1,10 +1,10 @@
     
 from typing import Union, Tuple
-def verbosePrint(message: str, verbose: bool, separator = False, width = 80):
+def verbosePrint(message: str, verbose: bool, separator = False, width = 80, verbosePrefix = ''):
     if verbose:
         if separator:
             print('=' * width)
-        print(message)
+        print(f'{verbosePrefix}{message}')
 
 
         ################################################################################

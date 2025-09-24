@@ -53,6 +53,39 @@ from .mlp import buildMLPwDict, getDefaultMLPDict
 # - inputPositions: A tensor of shape [num_tokens, spatial_dim] representing the position vectors for each token
 # - cutoffRadius: A scalar value representing the cutoff radius for neighborhood search (if applicable) [Optional]
 
+from typing import Optional, Union, Tuple
+from dataclasses import dataclass, field
+
+"""Configuration for Absolute Position Bias (APB) in InputEncodeLayer.
+
+This configuration controls the behavior of the absolute position bias (APB) mechanism,
+which encodes the absolute position of each token in the input sequence.
+
+Note: APB violates translation equivariance, so it should be used with caution in tasks where
+translation equivariance is important, e.g., physics-based tasks.
+"""
+@dataclass
+class APBConfig:
+    enabled:            bool            = field(default=False,      metadata={"help": "Enable APB"}) 
+    scaled_positions:   bool            = field(default=False,      metadata={"help": "Scale positions using an external scaling parameter"})
+    multiplicative:     bool            = field(default=False,      metadata={"help": "Use multiplicative encoding"})
+    base_encoding:      bool            = field(default=True,       metadata={"help": "Use basis function encoding"})
+    base_function:      str             = field(default='fourier',  metadata={"help": "Basis function type"})
+    base_terms:         int             = field(default=16,         metadata={"help": "Number of basis functions"})
+    base_mode:          str             = field(default='cat',      metadata={"help": "Basis function mode"})
+    linear:             bool            = field(default=True,       metadata={"help": "Use linear encoding for APB"})
+    mlp_dict:           Optional[dict]  = field(default=None,       metadata={"help": "MLP architecture for APB"})
+
+@dataclass
+class InputEncodeConfig:
+    input_dim: int = 0
+    output_dim: int = 0
+    spatial_dim: int = 3
+    linear_encode: bool = True
+    encoder_mlp_dict: Optional[dict] = None
+    apb: APBConfig = field(default_factory=APBConfig)
+    verbose: bool = False
+
 class InputEncodeLayer(torch.nn.Module):
     def __init__(self, 
                  input_dim: int,

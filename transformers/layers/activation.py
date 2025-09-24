@@ -66,3 +66,17 @@ def getActivationFunctions():
     return ['elu', 'relu', 'hardtanh', 'hardswish', 'selu', 'celu', 'leaky_relu', 'prelu', 'rrelu', 'glu', 'gelu', 'logsigmoid', 'hardshrink', 'tanhshrink', 'softsign', 'softplus', 'softmin', 'softmax', 'softshrink', 'gumbel_softmax', 'log_softmax', 'tanh', 'sigmoid', 'hardsigmoid', 'silu', 'mish']
 def getActivationFunction(function : str):
     return getattr(nn.functional, function)
+
+
+from typing import Optional
+def getActivationFromString(activation: Optional[str]):        
+    if activation is None:
+        activation_fn = nn.Identity()
+        activationName = 'identity'
+    else:
+        activationName = activation.split('(')[0] if '(' in activation else activation
+        activationArguments = () if '(' not in activation else activation[activation.index('(')+1:activation.index(')')].split(',')
+        activationArguments = tuple([float(arg) for arg in activationArguments])
+        activation_fn = getActivationLayer(activationName, *activationArguments)
+        
+    return activation_fn, activationName
