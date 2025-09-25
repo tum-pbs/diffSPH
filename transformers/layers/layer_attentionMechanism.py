@@ -71,8 +71,19 @@ from .windows import getWindowFunction
 from typing import Optional, Union, Tuple
 from dataclasses import dataclass, field
 
+
+
+
 @dataclass(slots=True)
 class AttentionMechanismConfig:
+    num_heads: int = field(default=4, metadata={"help": "Number of attention heads"})
+    transformer_features: int = field(default=16, metadata={"help": "Dimensionality of the attention features per head"})
+
+    spatial_dim: int = field(default=3, metadata={"help": "Dimensionality of the position vector per token (e.g. 3 for 3D positions)"})
+    edge_feature_dim: int = field(default=0, metadata={"help": "Dimensionality of the edge feature vector per edge"})
+    rpb_feature_dim: int = field(default=0, metadata={"help": "Dimensionality of the relative position bias feature vector per edge (if using relative position bias)"})
+
+
     mechanism: str = field(default='dot', metadata={"help": "Type of attention mechanism to use ('dot', 'scaled_dot', 'mix', 'cosine')"})
 
     dropout: float = field(default=0.0, metadata={"help": "Dropout rate for the attention scores"})
@@ -81,8 +92,6 @@ class AttentionMechanismConfig:
     clipping_value: float = field(default=1.0, metadata={"help": "The value to clip the attention scores to (if clipping is True)"})
     activation: str = field(default='leaky_relu(0.2)', metadata={"help": "Activation function to use for attention score MLP"})
 
-    mix_linear : bool = field(default=True, metadata={"help": "Whether to use a linear projection from the query and key tokens to the attention scores instead of an MLP"})
-    mix_mlp_dict : Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for attention score computation (if mix_linear is False)"})
 
 @dataclass(slots=True)
 class AttentionLayerConfig:
