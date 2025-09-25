@@ -55,11 +55,13 @@ class TokenMixerConfig:
     cconv_source: str = field(default='rpb', metadata={"help": "Source of the continuous convolution (e.g. 'rpb' for relative position bias)"})
 
     channel_mixing: bool = field(default=False, metadata={"help": "Indicates if channels should be mixed before the token mixing, if False the biasing is done per channel"})
+    channel_broadcast: bool = field(default=True, metadata={"help": "If channel_mixing is True, whether to broadcast the channel mixed tokens, e.g., if the first channel is of shape [N,H,3] and the second channel is of shape [N,H,1], the second channel will be broadcasted to [N,H,3] before mixing. If False, an error will be raised if the channels have different shapes."})
     channel_mixing_operation: str = field(default='add', metadata={"help": "Operation to use for channel mixing ('add', 'multiply', 'concat', 'subtract', 'project', 'mean')"})
 
     channel_projection_linear: bool = field(default=False, metadata={"help": "If channel_mixing is True and channel_mixing_operation is 'project', whether to use a linear layer for projection (if False, use an MLP)"})
     channel_projection_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for channel projection (if channel_mixing_operation is 'project' and channel_projection_linear is False)"})
     channel_projection_out_features: Optional[int] = field(default=None, metadata={"help": "Output feature dimension after channel projection (if None, use transformer_features)"})
+    channel_normalization: Optional[Union[float,str]] = field(default=None, metadata={"help": "Normalization to apply after channel mixing (if any), could be 'cosine', 'scaled'(uses d_k) or a float value to scale the output by"})
 
 
 
@@ -114,6 +116,9 @@ class TokenMixer(torch.nn.Module):
             elif self.config.channel_mixing_operation == 'mean':
                 input_dim = self.config.transformer_features
                 verbosePrint(f'Using channel mean, keeping input dimension {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+            elif self.config.channel_mixing_operation in ['dot', 'scaled_dot', 'inner', 'cosine']:
+                input_dim = 1
+                verbosePrint(f'Using channel {self.config.channel_mixing_operation}, reducing input dimension to {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
             else:
                 input_dim = self.config.transformer_features
                 verbosePrint(f'Using channel {self.config.channel_mixing_operation}, keeping input dimension {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
@@ -149,7 +154,7 @@ class TokenMixer(torch.nn.Module):
         verbosePrint(f'Output dimension of the token mixing: {self.output_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
 
         mixingLayers = []
-        head_range = range(self.config.num_heads) if self.config.per_head else range(1)
+        head_range = range(max(1,self.config.num_heads)) if self.config.per_head else range(1)
 
         for _ in head_range:
             mixingLayers.append(self._build_mixing_layer())
@@ -266,10 +271,10 @@ class TokenMixer(torch.nn.Module):
 
     def forward(self,
         tokens: Union[Tensor, List[Tensor]], # shape [*, H, T]
-        edgeTokens: Optional[Tensor] = None, # shape [*, F_e]
-        spatialTokens: Optional[Tensor] = None, # shape [*, D]
-        positionBiasTokens: Optional[Tensor] = None, # shape [*, F_rpb]
-        windowValues: Optional[Tensor] = None, # shape [*]
+        edgeTokens: Optional[Tensor] = None, # shape [*, H?, F_e]
+        spatialTokens: Optional[Tensor] = None, # shape [*, H?, D]
+        positionBiasTokens: Optional[Tensor] = None, # shape [*, H?, F_rpb]
+        windowValues: Optional[Tensor] = None, # shape [*,H?]
     ):
         """ Mixes the input tokens using the configured mixing operation.
         
@@ -281,17 +286,32 @@ The tokens could be of the following shapes in practice:
 - Node tokens: [num_nodes, H, T] or [num_nodes, T]
 - Batched node tokens: [batch_size, num_nodes, H, T] or [batch_size, num_nodes, T]
 
+if self.config.num_heads is 0, we assume the inputs to be in the shape without heads, i.e. [*, T], and we add a head dimension of size 1 and remove it at the end.
+
         """
-
-
         verboseBannerPrint('TokenMixer: Forward Pass', self.verbose)
-        for i, input in enumerate(tokens if isinstance(tokens, list) else [tokens]):
-            verbosePrint(f'Input tokens {i} shape: {input.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-            if input.shape[-2] != self.config.num_heads:
-                raise ValueError(f'TokenMixer: Number of heads in input tokens ({input.shape[-2]}) does not match config.num_heads ({self.config.num_heads})')
-            if input.shape[-1] != self.config.transformer_features:
-                raise ValueError(f'TokenMixer: Feature dimension of input tokens ({input.shape[-1]}) does not match config.transformer_features ({self.config.transformer_features})')
+
+        if self.config.num_heads == 0:
+            if isinstance(tokens, list):
+                tokens = [t.unsqueeze(-2) for t in tokens]
+            else:
+                tokens = tokens.unsqueeze(-2)
         inputTokens = [tokens] if not isinstance(tokens, list) else tokens
+
+        for i, input in enumerate(inputTokens):
+            verbosePrint(f'Input tokens {i} shape: {input.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            if input.shape[-2] != self.config.num_heads and self.config.num_heads > 0:
+                raise ValueError(f'TokenMixer: Number of heads in input tokens ({input.shape[-2]}) does not match config.num_heads ({self.config.num_heads})')
+            if self.config.channel_broadcast:
+                if input.shape[-1] != self.config.transformer_features and input.shape[-1] != 1:
+                    raise ValueError(f'TokenMixer: Feature dimension of input tokens ({input.shape[-1]}) does not match config.transformer_features ({self.config.transformer_features}) or 1 (for broadcasting)')
+                inputTokens[i] = input.expand(-1, -1, self.config.transformer_features)
+                verbosePrint(f'Input tokens {i} shape after broadcasting (if needed): {inputTokens[i].shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+
+            else:
+                if input.shape[-1] != self.config.transformer_features:
+                    raise ValueError(f'TokenMixer: Feature dimension of input tokens ({input.shape[-1]}) does not match config.transformer_features ({self.config.transformer_features})')
+        # inputTokens = [tokens] if not isinstance(tokens, list) else tokens
         if self.config.channel_mixing:
             if len(inputTokens) != self.config.input_channels:
                 raise ValueError(f'TokenMixer: Number of input token channels ({len(inputTokens)}) does not match config.input_channels ({self.config.input_channels})')
@@ -307,6 +327,7 @@ The tokens could be of the following shapes in practice:
             if positionBiasTokens.shape[-1] != self.config.rpb_feature_dim:
                 raise ValueError(f'TokenMixer: Feature dimension of position bias tokens ({positionBiasTokens.shape[-1]}) does not match config.rpb_feature_dim ({self.config.rpb_feature_dim})')
         if windowValues is not None and self.config.include_window:
+            
             if windowValues.shape[-1] != 1:
                 verbosePrint(f'TokenMixer: Warning: window values should have shape [*] or [*, 1], got {windowValues.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
                 windowValues = windowValues.unsqueeze(-1)
@@ -317,6 +338,10 @@ The tokens could be of the following shapes in practice:
 
         if self.config.channel_mixing:
             verbosePrint(f'Applying channel mixing with operation {self.config.channel_mixing_operation}', self.verbose, verbosePrefix=self.verbosePrefix+'\t', separator=True)
+
+            for i, input in enumerate(inputTokens):
+                verbosePrint(f'Input tokens {i} shape before channel mixing: {input.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+
 
             if self.config.channel_mixing_operation == 'add':
                 channelMixedTokens = torch.stack(inputTokens, dim=0).sum(dim=0) # shape [*, H, T]
@@ -340,14 +365,52 @@ The tokens could be of the following shapes in practice:
                 verbosePrint(f'Channel mixed tokens shape before projection: {channelMixedTokens.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
                 channelMixedTokens = self.channel_mixing_layer(channelMixedTokens) # shape [*, H, channel_projection_out_features]
                 verbosePrint(f'Channel mixed tokens shape after projection: {channelMixedTokens.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            elif self.config.channel_mixing_operation in ['dot', 'inner', 'scaled_dot', 'cosine']:
+                channelMixedTokens = torch.stack(inputTokens, dim=0).prod(dim=0) # shape [*, H, T]
+                verbosePrint(f'Channel mixed tokens shape after multiplication: {channelMixedTokens.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+                channelMixedTokens = channelMixedTokens.sum(dim=-1, keepdim=True) # shape [*, H, 1]
+                verbosePrint(f'Channel mixed tokens shape after summation: {channelMixedTokens.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             else:
                 raise ValueError(f"TokenMixer: channel_mixing_operation must be one of 'add', 'multiply', 'concat', 'subtract' or 'project', got {self.config.channel_mixing_operation}")
             channelMixedTokens = [channelMixedTokens] # make it a list for the next stage
+
+            if self.config.channel_normalization is not None:
+                if isinstance(self.config.channel_normalization, float):
+                    verbosePrint(f'Applying scaling normalization with factor {self.config.channel_normalization} after channel mixing', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    verbosePrint(f'Channel mixed tokens shape before normalization: {channelMixedTokens[0].shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    channelMixedTokens = [c * self.config.channel_normalization for c in channelMixedTokens]
+
+                elif self.config.channel_normalization == 'scaled':
+                    scale = self.config.transformer_features ** 0.5
+                    verbosePrint(f'Applying scaled normalization with factor sqrt(d_k)={scale} after channel mixing', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+
+                    channelMixedTokens = [c * scale for c in channelMixedTokens]
+                elif self.config.channel_normalization == 'cosine':
+                    norms = [torch.linalg.norm(t, dim=-1, keepdim=True) for t in inputTokens]
+
+                    norm = torch.prod(torch.stack(norms, dim=0), dim=0)
+                    verbosePrint(f'Computed cosine normalization factor with shape {norm.shape} after channel mixing', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    
+                    channelMixedTokens = [c / (norm + 1e-8) for c in channelMixedTokens]
+                    verbosePrint(f'Applying cosine normalization after channel mixing', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+                elif self.config.channel_normalization == 'length':
+                    verbosePrint(f'Applying length normalization after channel mixing', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+
+                    channelMixedTokens = [c / (torch.linalg.norm(c, dim=-1, keepdim=True) + 1e-8) for c in channelMixedTokens]
+
+                else:
+                    raise ValueError(f"TokenMixer: channel_normalization must be a float value, 'scaled' or 'cosine', got {self.config.channel_normalization}")
+                verbosePrint(f'Channel mixed tokens shape after normalization: {channelMixedTokens[0].shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+
         else:
             verbosePrint(f'Channel mixing is disabled, processing each channel separately', self.verbose, verbosePrefix=self.verbosePrefix+'\t', separator=True)
 
         if self.config.skip_token_mixing:
             verbosePrint(f'Skipping token mixing as per configuration, returning channel mixed tokens', self.verbose, verbosePrefix=self.verbosePrefix+'\t', separator=True)
+
+            if self.config.num_heads == 0:
+                return channelMixedTokens[0].squeeze(-2) if len(channelMixedTokens) == 1 else [t.squeeze(-2) for t in channelMixedTokens]
+
             return channelMixedTokens[0] if len(channelMixedTokens) == 1 else channelMixedTokens
 
         outputTokenList = []
@@ -417,22 +480,22 @@ The tokens could be of the following shapes in practice:
                     verbosePrint(f'Including edge features in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     if edgeTokens is None:
                         raise ValueError('TokenMixer: include_edges is True, but edgeTokens is None')
-                    headInput.append(edgeTokens.unsqueeze(-2).repeat(1, self.config.num_heads, 1)) # shape [*, H, F_e]
+                    headInput.append(edgeTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_e]
                 if self.config.include_spatial:
                     verbosePrint(f'Including spatial features in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     if spatialTokens is None:
                         raise ValueError('TokenMixer: include_spatial is True, but spatialTokens is None')
-                    headInput.append(spatialTokens.unsqueeze(-2).repeat(1, self.config.num_heads, 1)) # shape [*, H, F_s]
+                    headInput.append(spatialTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_s]
                 if self.config.include_rpb:
                     verbosePrint(f'Including relative position bias features in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     if positionBiasTokens is None:
                         raise ValueError('TokenMixer: include_rpb is True, but positionBiasTokens is None')
-                    headInput.append(positionBiasTokens.unsqueeze(-2).repeat(1, self.config.num_heads, 1)) # shape [*, H, F_r]
+                    headInput.append(positionBiasTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_r]
                 if self.config.include_window:
-                    verbosePrint(f'Including window function in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\    t')
+                    verbosePrint(f'Including window function in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     if windowValues is None:
                         raise ValueError('TokenMixer: include_window is True, but windowValues is None')
-                    headInput.append(windowValues.unsqueeze(-2).repeat(1, self.config.num_heads, 1)) # shape [*, H, F_w]
+                    headInput.append(windowValues.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_w]
 
                 verbosePrint(f'Head Input components: {len(headInput)}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                 for i, input in enumerate(headInput):
@@ -452,8 +515,11 @@ The tokens could be of the following shapes in practice:
                 )
 
                 verbosePrint(f'Output tokens shape after mixing: {outputTokens.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
-                outputTokens = outputTokens.view(*inputTokens.shape[:-2], self.config.num_heads, self.output_dim) # shape [*, H, output_dim]
+                outputTokens = outputTokens.view(*inputTokens.shape[:-2], max(1,self.config.num_heads), self.output_dim) # shape [*, H, output_dim]
                 verbosePrint(f'Output tokens shape after reshaping: {outputTokens.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             outputTokenList.append(outputTokens)
+
+        if self.config.num_heads == 0:
+            outputTokenList = [t.squeeze(-2) for t in outputTokenList]
 
         return outputTokenList if len(outputTokenList) > 1 else outputTokenList[0]

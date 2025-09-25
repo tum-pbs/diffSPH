@@ -68,6 +68,7 @@ translation equivariance is important, e.g., physics-based tasks.
 
 from .layer_positionEncoder import BasisEncoder, BasisEncoderConfig, computeBasisEncoderOutputShape
 
+
 @dataclass(slots=True)
 class TokenEncoderConfig:
     token_input_dim:        int = field(default =0, metadata={"help": "Dimensionality of the input feature vector per token"})
