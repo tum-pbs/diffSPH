@@ -247,6 +247,13 @@ class BasisEncoder(nn.Module):
         # we need to convert to an internal [E,D] shape
         normalizedPositions, batches, entries, dim = shapeMatch(inputPositions)
 
+        verbosePrint(f'{self.verbosePrefix}Input positions shape before shapeMatch: {inputPositions.shape}', verbose=self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Input positions shape after shapeMatch: {normalizedPositions.shape}, batches={batches}, entries={entries}, dim={dim}', verbose=self.verbose)
+        if normalizedPositions.shape != inputPositions.shape:
+            mapped = True
+        else:
+            mapped = False
+
         if normalizedPositions.shape[1] != self.config.spatial_dim:
             raise ValueError(f'Input positions dimension {normalizedPositions.shape[1]} does not match configured spatial_dim {self.config.spatial_dim}')
         
@@ -309,7 +316,7 @@ class BasisEncoder(nn.Module):
 
         # now combinedTerms is of shape [E, combinedBasisTerms]
         # map back to [B,N,combinedBasisTerms] or [E,combinedBasisTerms]
-        if inputPositions.shape != normalizedPositions.shape:
+        if mapped:
             verbosePrint(f'Reshaping output to include batch dimension: {batches}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             combinedTerms = combinedTerms.view(batches, -1, combinedTerms.shape[-1])
         # now apply the projection if needed

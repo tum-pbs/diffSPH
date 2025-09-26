@@ -81,9 +81,10 @@ class TokenEncoderConfig:
     projection_mlp_dict:    Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for input feature projection (if projection_linear is False)"})
 
     position_bias:          Optional[BasisEncoderConfig] = field(default=None, metadata={"help": "Configuration for absolute position bias (APB) encoding. If None, APB is disabled."})
-    position_bias_mixing:   str = field(default='add', metadata={"help": "Mode for combining position bias with input features. Options: 'cat' (concatenate), 'add' (additive), 'mul' (multiplicative), 'mix' (use linear or MLP to combine)"})
+    position_bias_mixing:   Optional[str] = field(default=None, metadata={"help": "Mode for combining position bias with input features. Options: 'cat' (concatenate), 'add' (additive), 'mul' (multiplicative), 'mix' (use linear or MLP to combine)"})
     position_bias_linear:   bool = field(default=True, metadata={"help": "If True, use a linear layer for position bias projection, if False use an MLP"})
     position_bias_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for position bias projection (if position_bias_linear is False)"})
+    position_bias_dim:     Optional[int] = field(default=None, metadata={"help": "Override position_bias_dim, used when there is no position bias encoder within this layer but the information is provided externally."})
 
     use_ffn:                bool = field(default=False, metadata={"help": "If True, use a feed-forward network (FFN) after input encoding"})
     ffn_linear:             bool = field(default=False, metadata={"help": "If True, use a linear layer for the FFN, if False use an MLP"})
@@ -146,11 +147,11 @@ class TokenEncoder(torch.nn.Module):
             self.apbDim = positionBiasDim
         else:
             self.apbEncoder = None
-            self.apbDim = 0
+            self.apbDim = self.config.position_bias_dim
             verbosePrint(f'\tPosition bias encoding disabled', self.verbose, self.verbosePrefix)
 
         ### PB Mixing Setup ###
-        if self.config.position_bias is not None and self.config.position_bias_mixing == 'mix':
+        if self.apbDim is not None and self.config.position_bias_mixing == 'mix':
             if self.config.position_bias_linear:
                 verbosePrint(f'\tUsing linear layer for position bias mixing', self.verbose, self.verbosePrefix)
                 self.pbMixer = nn.Linear(self.latent_token_dim + self.apbDim, self.latent_token_dim, bias=False)
@@ -220,6 +221,7 @@ class TokenEncoder(torch.nn.Module):
     def forward(self, 
                 inputTokens: torch.Tensor, # Shape: [num_tokens, input_dim]
                 inputPositions: Optional[torch.Tensor], # Shape: [num_tokens, spatial_dim],
+                encodedInputPositions: Optional[torch.Tensor] = None, # Shape: [num_tokens, position_encoding_dim],
                 ):
         verboseBannerPrint(f'Running Input Encode Layer...', self.verbose)
         verbosePrint(f'\tInput tokens shape: {inputTokens.shape}', self.verbose)
@@ -265,18 +267,20 @@ class TokenEncoder(torch.nn.Module):
         ################################################################################
         #                     Step 2: Encode absolute position bias (APB)                #
         ################################################################################
+        if self.apbEncoder is not None and encodedInputPositions is not None:
+            raise ValueError(f'Both inputPositions and encodedInputPositions are provided, only one should be given when position bias encoding is enabled!')
         if self.config.position_bias is not None:
             positionBias = self.apbEncoder(normalizedPositions)
             verbosePrint(f'\tPosition bias shape: {positionBias.shape}', self.verbose)
             checkTensorShape(positionBias, ['N*B', 'APB'], shapeDict, False, 'positionBias')
         else:
-            positionBias = None
+            positionBias = encodedInputPositions
 
         ################################################################################
         #                     Step 3: Combine encoded features and APB                  #
         ################################################################################
 
-        if positionBias is not None:
+        if positionBias is not None and self.config.position_bias_mixing is not None:
             verbosePrint(f'\tCombining encoded features and position bias using mode: {self.config.position_bias_mixing}', self.verbose, separator=True)
             if self.config.position_bias_mixing == 'add':
                 encodedFeatures = encodedFeatures + positionBias
@@ -327,7 +331,7 @@ class TokenEncoder(torch.nn.Module):
             verbosePrint(f'\tApplying final activation: {self.config.final_activation}', self.verbose, separator=True)
             encodedFeatures = self.final_activation(encodedFeatures)
             verbosePrint(f'\tFinal output shape after activation: {encodedFeatures.shape}', self.verbose)
-            checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'finalOutput')
+            # checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'finalOutput')
         # Reshape back to [B, N, O] if needed
         if normalizedTokens.shape != inputTokens.shape:
             verbosePrint(f'\tReshaping output to include batch dimension: {batchSize}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
@@ -339,7 +343,7 @@ class TokenEncoder(torch.nn.Module):
                 raise ValueError(f'Cannot apply skip connection, output feature dimension {encodedFeatures.shape[-1]} does not match input feature dimension {inputTokens.shape[-1]}')
             encodedFeatures = encodedFeatures + inputTokens
             verbosePrint(f'\tOutput shape after skip connection: {encodedFeatures.shape}', self.verbose)
-            checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'skipConnectionOutput')
+            # checkTensorShape(encodedFeatures, ['N*B', 'O'], shapeDict, False, 'skipConnectionOutput')
 
         verbosePrint(f'\tOutput encoded features shape: {encodedFeatures.shape}', self.verbose)
         verbosePrint(f'Done running Input Encode Layer.', self.verbose, separator=True)

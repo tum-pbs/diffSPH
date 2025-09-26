@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 
-from layers.layer_tokenEncoder import TokenEncoderConfig
+from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
 try:
     import torch_geometric
     from torch_geometric.utils import scatter, segment
@@ -26,6 +26,7 @@ from typing import Optional, Union, Tuple
 from dataclasses import dataclass, field
 from .networkUtil import shapeMatch, verbosePrintSpatialTensorStats, mergeConfigWithKwargs, checkTensorShape
 import copy
+from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape, BasisEncoderConfig
 
 
 
@@ -63,6 +64,14 @@ class TokenMixerConfig:
     channel_projection_out_features: Optional[int] = field(default=None, metadata={"help": "Output feature dimension after channel projection (if None, use transformer_features)"})
     channel_normalization: Optional[Union[float,str]] = field(default=None, metadata={"help": "Normalization to apply after channel mixing (if any), could be 'cosine', 'scaled'(uses d_k) or a float value to scale the output by"})
 
+    basis_encoder: Optional[BasisEncoderConfig] = field(default=None, metadata={"help": "If provided, a BasisEncoderConfig to encode the spatial information before mixing. The input dimension of the encoder must match the spatial_dim."})
+
+    channel_encoder: Optional[TokenEncoderConfig] = field(default=None, metadata={"help": "If provided, a TokenEncoderConfig to encode the channels before mixing. The input dimension of the encoder must match the number of channels."})
+    channel_encoder_shared: bool = field(default=True, metadata={"help": "If True, use the same TokenEncoder for all channels, if False, use a separate TokenEncoder for each channel."})
+
+    output_decoder: Optional[TokenEncoderConfig] = field(default=None, metadata={"help": "If provided, a TokenEncoderConfig to decode the output tokens after mixing. The input dimension of the decoder must match the mixing_out_features."})
+
+
 
 
 """"""
@@ -90,6 +99,40 @@ class TokenMixer(torch.nn.Module):
 
         input_dim = self.config.transformer_features
 
+        if self.config.channel_encoder is not None:
+            self.encoder_output_dim = self.config.channel_encoder.token_output_dim if self.config.channel_encoder.token_output_dim is not None else self.config.transformer_features
+            self.config.channel_encoder.token_input_dim = self.config.transformer_features
+            self.config.channel_encoder.token_output_dim = self.encoder_output_dim
+            verbosePrint(f'Using channel encoder with input dimension {self.config.channel_encoder.token_input_dim} output dimension {self.config.channel_encoder.token_output_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+
+            cfg = copy.deepcopy(self.config.channel_encoder)
+
+            encoders = []
+            if self.config.channel_encoder_shared:
+                verbosePrint(f'Using shared channel encoder for all {self.config.input_channels} channels', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                encoder = TokenEncoder(token_input_dim=self.config.transformer_features, token_output_dim=cfg.token_output_dim, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+                encoders = [encoder for _ in range(self.config.input_channels)]
+            else:
+                verbosePrint(f'Using separate channel encoder for each of the {self.config.input_channels} channels', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                for i in range(self.config.input_channels):
+                    verbosePrint(f'\tBuilding encoder for channel {i}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    encoder = TokenEncoder(token_input_dim=self.config.transformer_features, token_output_dim=cfg.token_output_dim, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+                    encoders.append(encoder)
+
+            input_dim = self.encoder_output_dim
+            self.channelEncoders = nn.ModuleList(encoders)
+        if self.config.include_rpb or self.config.mode == 'cconv' and self.config.cconv_source == 'rpb':
+            if self.config.rpb_feature_dim <= 0:
+                if self.config.basis_encoder is not None:
+                    self.basis_encoder = BasisEncoder(config=self.config.basis_encoder, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    self.config.rpb_feature_dim = computeBasisEncoderOutputShape(self.config.basis_encoder)[-1]
+                else:
+                    raise ValueError('TokenMixer: relative position bias is included, but rpb_feature_dim is 0')
+            elif self.config.basis_encoder is not None:
+                raise ValueError('TokenMixer: rpb_feature_dim is provided, but basis_encoder is also defined in the config. Provide only one of them.')
+            # input_dim += self.config.rpb_feature_dim
+            # verbosePrint(f'Including relative position bias features of dimension {self.config.rpb_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+
         if self.config.channel_mixing:
             verbosePrint(f'Channel mixing is enabled with operation {self.config.channel_mixing_operation}', verbose, verbosePrefix=self.verbosePrefix+'\t')
             if self.config.channel_mixing_operation not in ['add', 'multiply', 'concat', 'subtract', 'project', 'mean']:
@@ -97,30 +140,30 @@ class TokenMixer(torch.nn.Module):
             if self.config.channel_mixing_operation == 'project':
                 verbosePrint(f'Using channel projection for mixing {self.config.input_channels} channels', verbose, verbosePrefix=self.verbosePrefix+'\t')
                 if self.config.channel_projection_out_features is None:
-                    self.config.channel_projection_out_features = self.config.transformer_features
+                    self.config.channel_projection_out_features = input_dim
                 if self.config.channel_projection_linear:
-                    verbosePrint(f'Using linear layer for channel projection [{self.config.input_channels} channels * {self.config.transformer_features} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
-                    self.channel_mixing_layer = nn.Linear(self.config.input_channels * self.config.transformer_features, self.config.channel_projection_out_features)
+                    verbosePrint(f'Using linear layer for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    self.channel_mixing_layer = nn.Linear(self.config.input_channels * input_dim, self.config.channel_projection_out_features)
                 else:
-                    verbosePrint(f'Using MLP for channel projection [{self.config.input_channels} channels * {self.config.transformer_features} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    verbosePrint(f'Using MLP for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
                     mlp_dict = self.config.channel_projection_mlp_dict
                     if mlp_dict is None:
                         mlp_dict = getDefaultMLPDict()
-                    self.channel_mixing_layer = buildMLPwDict(mlp_dict, inputDim=self.config.input_channels * self.config.transformer_features, outputDim=self.config.channel_projection_out_features)
+                    self.channel_mixing_layer = buildMLPwDict(mlp_dict, inputDim=self.config.input_channels * input_dim, outputDim=self.config.channel_projection_out_features)
                     
                 input_dim = self.config.channel_projection_out_features
                 verbosePrint(f'Using channel projection with output features {self.config.channel_projection_out_features}', verbose, verbosePrefix=self.verbosePrefix+'\t')
             elif self.config.channel_mixing_operation == 'concat':
-                input_dim = self.config.input_channels * self.config.transformer_features
+                input_dim = self.config.input_channels * input_dim
                 verbosePrint(f'Using channel concatenation, increasing input dimension to {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
             elif self.config.channel_mixing_operation == 'mean':
-                input_dim = self.config.transformer_features
+                input_dim = input_dim
                 verbosePrint(f'Using channel mean, keeping input dimension {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
             elif self.config.channel_mixing_operation in ['dot', 'scaled_dot', 'inner', 'cosine']:
                 input_dim = 1
                 verbosePrint(f'Using channel {self.config.channel_mixing_operation}, reducing input dimension to {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
             else:
-                input_dim = self.config.transformer_features
+                input_dim = input_dim
                 verbosePrint(f'Using channel {self.config.channel_mixing_operation}, keeping input dimension {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
 
 
@@ -135,10 +178,9 @@ class TokenMixer(torch.nn.Module):
             input_dim += self.config.spatial_dim
             verbosePrint(f'Including spatial information of dimension {self.config.spatial_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
         if self.config.include_rpb:
-            if self.config.rpb_feature_dim <= 0:
-                raise ValueError('TokenMixer: relative position bias is included, but rpb_feature_dim is 0')
             input_dim += self.config.rpb_feature_dim
             verbosePrint(f'Including relative position bias features of dimension {self.config.rpb_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+
         if self.config.include_window:
             if not self.config.include_spatial:
                 raise ValueError('TokenMixer: include_window is True, but include_spatial is False. Spatial information is needed to compute the window function.')
@@ -160,6 +202,15 @@ class TokenMixer(torch.nn.Module):
             mixingLayers.append(self._build_mixing_layer())
 
         self.mixingLayers = nn.ModuleList(mixingLayers)
+
+
+        if self.config.output_decoder is not None:
+            self.config.output_decoder.token_input_dim = self.config.mixing_out_features
+            self.config.output_decoder.token_output_dim = self.config.mixing_out_features
+            verbosePrint(f'Using output decoder with input and output dimension {self.config.mixing_out_features}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+            self.outputDecoder = TokenEncoder(token_input_dim=self.config.output_decoder.token_input_dim, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t')
+
+        verboseBannerPrint('Done initializing Input Mix Layer.', verbose)
 
     def _build_mixing_layer(self):
         mode = self.config.mode.lower()
@@ -290,6 +341,12 @@ if self.config.num_heads is 0, we assume the inputs to be in the shape without h
 
         """
         verboseBannerPrint('TokenMixer: Forward Pass', self.verbose)
+        if positionBiasTokens is not None and self.config.basis_encoder is not None:
+            raise ValueError('TokenMixer: positionBiasTokens is provided, but basis_encoder is also defined in the config. Provide only one of them.')
+        if positionBiasTokens is None and self.config.basis_encoder is not None:
+            verbosePrint(f'Computing relative position bias features using basis encoder', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t\t')
+            positionBiasTokens = self.basis_encoder(spatialTokens)
+            verbosePrint(f'Position bias tokens shape: {positionBiasTokens.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t\t')
 
         if self.config.num_heads == 0:
             if isinstance(tokens, list):
@@ -297,6 +354,16 @@ if self.config.num_heads is 0, we assume the inputs to be in the shape without h
             else:
                 tokens = tokens.unsqueeze(-2)
         inputTokens = [tokens] if not isinstance(tokens, list) else tokens
+
+        if self.config.channel_encoder is not None:
+            verbosePrint(f'Encoding input tokens using channel encoder', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            for i in range(len(inputTokens)):
+                verbosePrint(f'Input tokens {i} shape before encoding: {inputTokens[i].shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+                inputTokens[i] = self.channelEncoders[i](
+                    inputTokens[i],
+                    inputPositions=spatialTokens,
+                    encodedInputPositions=positionBiasTokens)
+                verbosePrint(f'Input tokens {i} shape after encoding: {inputTokens[i].shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
 
         for i, input in enumerate(inputTokens):
             verbosePrint(f'Input tokens {i} shape: {input.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
@@ -521,5 +588,14 @@ if self.config.num_heads is 0, we assume the inputs to be in the shape without h
 
         if self.config.num_heads == 0:
             outputTokenList = [t.squeeze(-2) for t in outputTokenList]
+
+        if self.config.output_decoder is not None:
+            verbosePrint(f'Applying output decoder to the mixed tokens', self.verbose, verbosePrefix=self.verbosePrefix+'\t', separator=True)
+            for i in range(len(outputTokenList)):
+                verbosePrint(f'Output tokens {i} shape before decoding: {outputTokenList[i].shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+                outputTokenList[i] = self.outputDecoder(outputTokenList[i], 
+                    inputPositions=spatialTokens,
+                    encodedInputPositions=positionBiasTokens)
+                verbosePrint(f'Output tokens {i} shape after decoding: {outputTokenList[i].shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
 
         return outputTokenList if len(outputTokenList) > 1 else outputTokenList[0]

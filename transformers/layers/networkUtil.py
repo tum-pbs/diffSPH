@@ -111,9 +111,9 @@ def checkTensorShape(tensor: Tensor, expected_shape: List[str], shape_dict: dict
         print(f'Tensor{name} has expected shape: {shape}')
 
 import copy
-def mergeConfigWithKwargs(configClass, **kwargs):
-    config = copy.deepcopy(configClass)
-    for key, value in configClass.__dataclass_fields__.items():
+def mergeConfigWithKwargs(config, **kwargs):
+    # config = copy.deepcopy(configClass)
+    for key, value in config.__dataclass_fields__.items():
         if str(key) not in kwargs:
             continue
         if isinstance(kwargs[str(key)], dict):
