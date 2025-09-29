@@ -130,8 +130,12 @@ class TokenMixer(torch.nn.Module):
                     raise ValueError('TokenMixer: relative position bias is included, but rpb_feature_dim is 0')
             elif self.config.basis_encoder is not None:
                 raise ValueError('TokenMixer: rpb_feature_dim is provided, but basis_encoder is also defined in the config. Provide only one of them.')
+            else:
+                self.basis_encoder = None
             # input_dim += self.config.rpb_feature_dim
             # verbosePrint(f'Including relative position bias features of dimension {self.config.rpb_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+        else:
+            self.basis_encoder = None
 
         if self.config.channel_mixing:
             verbosePrint(f'Channel mixing is enabled with operation {self.config.channel_mixing_operation}', verbose, verbosePrefix=self.verbosePrefix+'\t')
@@ -245,7 +249,7 @@ class TokenMixer(torch.nn.Module):
         elif mode == 'add' or mode == 'multiply':
             if self.config.transformer_features != self.output_dim:
                 raise ValueError(f'TokenMixer: For mode "{mode}", input_dim ({self.input_dim}) must be equal to output_dim ({self.output_dim})')
-            mixingLayer = nn.Linear(self.input_dim - self.config.transformer_features, self.output_dim)
+            mixingLayer = nn.Identity() # nn.Linear(self.input_dim - self.config.transformer_features, self.output_dim)
 
         else:
             raise ValueError(f"TokenMixer: mode must be one of 'linear', 'mlp' or 'cconv', got {self.config.mode}")
@@ -341,9 +345,9 @@ if self.config.num_heads is 0, we assume the inputs to be in the shape without h
 
         """
         verboseBannerPrint('TokenMixer: Forward Pass', self.verbose)
-        if positionBiasTokens is not None and self.config.basis_encoder is not None:
+        if positionBiasTokens is not None and self.basis_encoder is not None:
             raise ValueError('TokenMixer: positionBiasTokens is provided, but basis_encoder is also defined in the config. Provide only one of them.')
-        if positionBiasTokens is None and self.config.basis_encoder is not None:
+        if positionBiasTokens is None and self.basis_encoder is not None:
             verbosePrint(f'Computing relative position bias features using basis encoder', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t\t')
             positionBiasTokens = self.basis_encoder(spatialTokens)
             verbosePrint(f'Position bias tokens shape: {positionBiasTokens.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t\t')
@@ -547,22 +551,34 @@ if self.config.num_heads is 0, we assume the inputs to be in the shape without h
                     verbosePrint(f'Including edge features in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     if edgeTokens is None:
                         raise ValueError('TokenMixer: include_edges is True, but edgeTokens is None')
-                    headInput.append(edgeTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_e]
+                    if len(edgeTokens.shape) == len(inputTokens.shape):
+                        headInput.append(edgeTokens) # shape [*, H, F_e]
+                    else:
+                        headInput.append(edgeTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_e]
                 if self.config.include_spatial:
                     verbosePrint(f'Including spatial features in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     if spatialTokens is None:
                         raise ValueError('TokenMixer: include_spatial is True, but spatialTokens is None')
-                    headInput.append(spatialTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_s]
+                    if len(spatialTokens.shape) == len(inputTokens.shape):
+                        headInput.append(spatialTokens) # shape [*, H, F_s]
+                    else:
+                        headInput.append(spatialTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_s]
                 if self.config.include_rpb:
                     verbosePrint(f'Including relative position bias features in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     if positionBiasTokens is None:
                         raise ValueError('TokenMixer: include_rpb is True, but positionBiasTokens is None')
-                    headInput.append(positionBiasTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_r]
+                    if len(positionBiasTokens.shape) == len(inputTokens.shape):
+                        headInput.append(positionBiasTokens) # shape [*, H, F_r]
+                    else:
+                        headInput.append(positionBiasTokens.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_r]
                 if self.config.include_window:
                     verbosePrint(f'Including window function in the mixing computation', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     if windowValues is None:
                         raise ValueError('TokenMixer: include_window is True, but windowValues is None')
-                    headInput.append(windowValues.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_w]
+                    if len(windowValues.shape) == len(inputTokens.shape):
+                        headInput.append(windowValues) # shape [*, H, F_w]
+                    else:
+                        headInput.append(windowValues.unsqueeze(-2).expand(-1, self.config.num_heads, -1)) # shape [*, H, F_w]
 
                 verbosePrint(f'Head Input components: {len(headInput)}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                 for i, input in enumerate(headInput):

@@ -306,11 +306,12 @@ class AttentionMechanismLayer(torch.nn.Module):
         self.preAttentionMixer.num_heads = self.num_heads
         self.preAttentionMixer.transformer_features = self.transformer_features
         self.preAttentionMixer.mixing_out_features = 1
-        self.preAttentionMixer.input_channels = 1
+        self.preAttentionMixer.input_channels = 2
 
         self.preAttentionMixer.spatial_dim = self.config.spatial_dim
         self.preAttentionMixer.edge_feature_dim = self.edge_feature_dim
         self.preAttentionMixer.rpb_feature_dim = rpb_feature_dim
+        self.preAttentionMixer.channel_mixing = True
         verbosePrint(f'Pre Attention Mixer config: {self.preAttentionMixer}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
 
         mode = self.config.attention_mechanism.mechanism
@@ -540,7 +541,7 @@ class AttentionMechanismLayer(torch.nn.Module):
             spatialTokens = edge_attr,
             positionBiasTokens = rpb_features,
             windowValues= windowScaling
-        )[0]  # (num_edges, H, 1)
+        )  # (num_edges, H, 1)
         verbosePrint(f'Raw attention scores shape: {attention_scores.shape} [E, H, 1]', self.verbose)
 
         if self.config.postAttentionMixer is not None:
@@ -580,5 +581,16 @@ class AttentionMechanismLayer(torch.nn.Module):
         else:
             attention_scores = attention_scores.view(-1, self.num_heads)  # (num_edges, H)
             verbosePrint(f'Skipped softmax on attention scores, shape: {attention_scores.shape} [E, H]', self.verbose)
+
+        if self.config.window_function and not self.config.window_function_before_softmax:
+            attention_scores = attention_scores * windowScaling.view(-1, 1)  # (num_edges, 1)
+            verbosePrint(f'Applied window function after softmax, attention scores shape: {attention_scores.shape} [E, H]', self.verbose)
             
-        return attention_scores.unsqueeze(-1)  # (num_edges, H, 1)
+        attention_scores = attention_scores.unsqueeze(-1)  # (num_edges, H, 1)
+
+        # attention_scores = attention_scores.permute(1,0,2).contiguous()  # (H, num_edges, 1)
+
+        verbosePrint(f'Final attention scores shape: {attention_scores.shape} [E, H]', self.verbose)
+        verbosePrint(f'Attention Mechanism Layer complete.', self.verbose, separator=True)
+
+        return attention_scores  # (num_edges, H, 1)

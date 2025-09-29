@@ -220,7 +220,7 @@ class TokenEncoder(torch.nn.Module):
         
     def forward(self, 
                 inputTokens: torch.Tensor, # Shape: [num_tokens, input_dim]
-                inputPositions: Optional[torch.Tensor], # Shape: [num_tokens, spatial_dim],
+                inputPositions: Optional[torch.Tensor] = None, # Shape: [num_tokens, spatial_dim],
                 encodedInputPositions: Optional[torch.Tensor] = None, # Shape: [num_tokens, position_encoding_dim],
                 ):
         verboseBannerPrint(f'Running Input Encode Layer...', self.verbose)
