@@ -139,8 +139,8 @@ class TokenMixer(torch.nn.Module):
 
         if self.config.channel_mixing:
             verbosePrint(f'Channel mixing is enabled with operation {self.config.channel_mixing_operation}', verbose, verbosePrefix=self.verbosePrefix+'\t')
-            if self.config.channel_mixing_operation not in ['add', 'multiply', 'concat', 'subtract', 'project', 'mean']:
-                raise ValueError(f"TokenMixer: channel_mixing_operation must be one of 'add', 'multiply', 'concat', 'subtract', 'project' or 'mean', got {self.config.channel_mixing_operation}")
+            # if self.config.channel_mixing_operation not in ['add', 'multiply', 'concat', 'subtract', 'project', 'mean']:
+                # raise ValueError(f"TokenMixer: channel_mixing_operation must be one of 'add', 'multiply', 'concat', 'subtract', 'project' or 'mean', got {self.config.channel_mixing_operation}")
             if self.config.channel_mixing_operation == 'project':
                 verbosePrint(f'Using channel projection for mixing {self.config.input_channels} channels', verbose, verbosePrefix=self.verbosePrefix+'\t')
                 if self.config.channel_projection_out_features is None:
@@ -171,25 +171,26 @@ class TokenMixer(torch.nn.Module):
                 verbosePrint(f'Using channel {self.config.channel_mixing_operation}, keeping input dimension {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
 
 
-        if self.config.include_edges:
-            if self.config.edge_feature_dim <= 0:
-                raise ValueError('TokenMixer: edge features are included, but edge_feature_dim is 0')
-            input_dim += self.config.edge_feature_dim
-            verbosePrint(f'Including edge features of dimension {self.config.edge_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
-        if self.config.include_spatial:
-            if self.config.spatial_dim <= 0:
-                raise ValueError('TokenMixer: spatial information is included, but spatial_dim is 0')
-            input_dim += self.config.spatial_dim
-            verbosePrint(f'Including spatial information of dimension {self.config.spatial_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
-        if self.config.include_rpb:
-            input_dim += self.config.rpb_feature_dim
-            verbosePrint(f'Including relative position bias features of dimension {self.config.rpb_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+        if not self.config.mode in ['add', 'multiply']:
+            if self.config.include_edges:
+                if self.config.edge_feature_dim <= 0:
+                    raise ValueError('TokenMixer: edge features are included, but edge_feature_dim is 0')
+                input_dim += self.config.edge_feature_dim
+                verbosePrint(f'Including edge features of dimension {self.config.edge_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+            if self.config.include_spatial:
+                if self.config.spatial_dim <= 0:
+                    raise ValueError('TokenMixer: spatial information is included, but spatial_dim is 0')
+                input_dim += self.config.spatial_dim
+                verbosePrint(f'Including spatial information of dimension {self.config.spatial_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+            if self.config.include_rpb:
+                input_dim += self.config.rpb_feature_dim
+                verbosePrint(f'Including relative position bias features of dimension {self.config.rpb_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
 
-        if self.config.include_window:
-            if not self.config.include_spatial:
-                raise ValueError('TokenMixer: include_window is True, but include_spatial is False. Spatial information is needed to compute the window function.')
-            input_dim += 1
-            verbosePrint(f'Including window function in the mixing computation', verbose, verbosePrefix=self.verbosePrefix+'\t')
+            if self.config.include_window:
+                if not self.config.include_spatial:
+                    raise ValueError('TokenMixer: include_window is True, but include_spatial is False. Spatial information is needed to compute the window function.')
+                input_dim += 1
+                verbosePrint(f'Including window function in the mixing computation', verbose, verbosePrefix=self.verbosePrefix+'\t')
 
         verbosePrint(f'Input dimension to the token mixing: {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
         self.input_dim = input_dim
@@ -247,7 +248,7 @@ class TokenMixer(torch.nn.Module):
 
             mixingLayer = nn.Linear(kernel_input_dim, kernel_output_dim)
         elif mode == 'add' or mode == 'multiply':
-            if self.config.transformer_features != self.output_dim:
+            if self.input_dim != self.output_dim:
                 raise ValueError(f'TokenMixer: For mode "{mode}", input_dim ({self.input_dim}) must be equal to output_dim ({self.output_dim})')
             mixingLayer = nn.Identity() # nn.Linear(self.input_dim - self.config.transformer_features, self.output_dim)
 

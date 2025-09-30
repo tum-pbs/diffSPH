@@ -60,22 +60,22 @@ def softmax(attentionScoresSparse, sparse_values, rows, cols, sparse_indices): #
         # Our manual implementation returns a flat tensor of shape [batch_size * multiHeads, num_edges]
         # We need to flatten scores and provide the correct index for grouping by destination node (cols) for each head in each batch
 
-        print('Using torch_geometric softmax')
-        print('attentionScoresSparse shape:', attentionScoresSparse.shape)
-        print('sparse_indices shape:', sparse_indices.shape)
-        print('rows shape:', rows.shape)
-        print('cols shape:', cols.shape)
-        print('sparse_values shape:', sparse_values.shape)
+        # print('Using torch_geometric softmax')
+        # print('attentionScoresSparse shape:', attentionScoresSparse.shape)
+        # print('sparse_indices shape:', sparse_indices.shape)
+        # print('rows shape:', rows.shape)
+        # print('cols shape:', cols.shape)
+        # print('sparse_values shape:', sparse_values.shape)
 
         scores = sparse_values.reshape(rows.shape[0], attentionScoresSparse.shape[0] * attentionScoresSparse.shape[1])
-        print('scores shape:', scores.shape)
+        # print('scores shape:', scores.shape)
 
 
         # Torch Geometric requires the edges to be the first dimension
         # scores = scores.mT
-        print('scores transposed shape:', scores.shape)
+        # print('scores transposed shape:', scores.shape)
         softmaxxed = softmax_(scores, index=rows)
-        print('softmaxxed shape:', softmaxxed.shape)
+        # print('softmaxxed shape:', softmaxxed.shape)
         # softmaxxed = softmaxxed.mT.reshape(attentionScoresSparse.shape[1], sparse_values.shape[0] // attentionScoresSparse.shape[1])
         # softmaxxed = softmaxxed.reshape(attentionScoresSparse.shape[1], sparse_values.shape[0] // attentionScoresSparse.shape[1])
         return softmaxxed

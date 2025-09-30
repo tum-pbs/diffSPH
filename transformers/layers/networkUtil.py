@@ -116,7 +116,7 @@ def mergeConfigWithKwargs(config, **kwargs):
     for key, value in config.__dataclass_fields__.items():
         if str(key) not in kwargs:
             continue
-        if isinstance(kwargs[str(key)], dict):
+        if isinstance(kwargs[str(key)], dict) and 'dict' not in key:
             for subkey, subvalue in kwargs[str(key)].items():
                 if subkey in value.type.__dataclass_fields__:
                     setattr(config, subkey, subvalue)
