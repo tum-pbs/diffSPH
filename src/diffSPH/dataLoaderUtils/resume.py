@@ -17,14 +17,22 @@ def convertConfigKey(currentValue, newValue):
         return {k: convertConfigKey(currentValue[k] if k in currentValue else None, newValue[k]) for k in newValue}
     elif isinstance(currentValue, DomainDescription):
         # print(f'Converting DomainDescription from {currentValue} to {newValue}')
-        return DomainDescription(
-            min=torch.tensor(newValue['min'], device=currentValue.min.device, dtype=currentValue.min.dtype),
-            max=torch.tensor(newValue['max'], device=currentValue.max.device, dtype=currentValue.max.dtype),
+        d = DomainDescription(
+            min=torch.tensor(newValue['min'] if 'min' in newValue else newValue['minExtent'], device=currentValue.min.device, dtype=currentValue.min.dtype),
+            max=torch.tensor(newValue['max'] if 'max' in newValue else newValue['maxExtent'], device=currentValue.max.device, dtype=currentValue.max.dtype),
             dim=newValue['dim'],
             periodic=torch.tensor(newValue['periodic'], device=currentValue.periodic.device, dtype=torch.bool)
         )
+        if d.periodic.shape != d.min.shape:
+            d.periodic = d.periodic.repeat(d.dim)
+        return d
+
     elif isinstance(currentValue, Enum):
-        return [e for e in type(currentValue) if e.value == newValue][0] if newValue is not None else None
+        if newValue is not None:
+            l = [e for e in type(currentValue) if e.value == newValue]
+            if len(l)> 0:
+                return l[0]
+        return None
     else:
         return type(currentValue)(newValue) if newValue is not None else None
 
@@ -127,7 +135,7 @@ def stateToWCState(currentState, currentConfig, domain_, batch = 0):
         velocities = currentState.velocities[currentState.batches == batch],
 
         pressures = torch.zeros_like(currentState.densities[currentState.batches == batch], device=currentState.densities.device, dtype=currentState.densities.dtype),
-        soundspeeds= torch.ones_like(currentState.densities[currentState.batches == batch], device=currentState.densities.device, dtype=currentState.densities.dtype) * currentConfig['fluid']['c_s'],
+        soundspeeds= torch.ones_like(currentState.densities[currentState.batches == batch], device=currentState.densities.device, dtype=currentState.densities.dtype) * (currentConfig['fluid']['c_s'] if 'c_s' in currentConfig['fluid'] else currentConfig['fluid']['cs']),
 
         kinds = currentState.kinds[currentState.batches == batch],
         materials = currentState.materials[currentState.batches == batch],
@@ -135,17 +143,26 @@ def stateToWCState(currentState, currentConfig, domain_, batch = 0):
 
         UIDcounter = currentState.UIDs[currentState.batches == batch].max(),
 
-        ghostIndices = currentState.boundaryIndices[currentState.batches == batch],
-        ghostOffsets = currentState.boundaryNormals[currentState.batches == batch] * currentState.boundaryDistances[currentState.batches == batch][:,None] * 2
+        ghostIndices = currentState.boundaryIndices[currentState.batches == batch] if currentState.boundaryIndices is not None else None,
+        ghostOffsets = (currentState.boundaryNormals[currentState.batches == batch] * currentState.boundaryDistances[currentState.batches == batch][:,None] * 2) if (currentState.boundaryNormals is not None and currentState.boundaryDistances is not None) else None,
     )
 
-    caseName = currentConfig['attributes']['caseName'] if 'caseName' in currentConfig['attributes'] else 'default'
+    
+    caseName = currentConfig['attributes']['caseName'] if 'attributes' in currentConfig and 'caseName' in currentConfig['attributes'] else 'default'
 
+    if isinstance(currentConfig['kernel'], dict):
+        kernel = KernelType.Wendland2
+        scheme = SimulationScheme.DeltaSPH
+        integrationScheme = IntegrationSchemeType.symplecticEuler
+    else:
+        kernel = [k for k in KernelType if k.value == currentConfig['kernel']][0] if currentConfig['kernel'] is not None else None
+        scheme = [s for s in SimulationScheme if s.value == currentConfig['scheme']][0] if currentConfig['scheme'] is not None else None
+        integrationScheme = [i for i in IntegrationSchemeType if i.value == currentConfig['integrationScheme']][0] if currentConfig['integrationScheme'] is not None else None
 
-    kernel = [k for k in KernelType if k.value == currentConfig['kernel']][0] if currentConfig['kernel'] is not None else None
-    scheme = [s for s in SimulationScheme if s.value == currentConfig['scheme']][0] if currentConfig['scheme'] is not None else None
-    integrationScheme = [i for i in IntegrationSchemeType if i.value == currentConfig['integrationScheme']][0] if config['integrationScheme'] is not None else None
-    targetNeighbors = currentConfig['targetNeighbors'] if currentConfig['targetNeighbors'] is not None else n_h_to_nH(4, domain_.dim)
+    if 'targetNeighbors' not in currentConfig:
+        targetNeighbors = currentConfig['kernel']['targetNeighbors']
+    else:
+        targetNeighbors = currentConfig['targetNeighbors'] if currentConfig['targetNeighbors'] is not None else n_h_to_nH(4, domain_.dim)
 
 
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
@@ -157,6 +174,9 @@ def stateToWCState(currentState, currentConfig, domain_, batch = 0):
         dim = domain_.dim,
         periodic = torch.tensor(domain_.periodic, device=device, dtype=torch.bool)
     )
+
+    if domain.periodic.shape != domain.min.shape:
+        domain.periodic = domain.periodic.repeat(domain.dim)
 
     # kernel = KernelType.Wendland4
     # scheme = SimulationScheme.DeltaSPH
@@ -180,11 +200,12 @@ def stateToWCState(currentState, currentConfig, domain_, batch = 0):
     rigidBodyIDs = torch.unique(state.materials[state.kinds == 1]).cpu().numpy()
     # print(rigidBodyIDs)
     rigidBodies = []
-    for id in rigidBodyIDs:
-        # print('Processing rigid body', id)
-        rigidBody = buildRigidBody(state, config, id)
-        if(rigidBody is not None):
-            rigidBodies.append(rigidBody)
+    if state.ghostOffsets is not None:
+        for id in rigidBodyIDs:
+            # print('Processing rigid body', id)
+            rigidBody = buildRigidBody(state, config, id)
+            if(rigidBody is not None):
+                rigidBodies.append(rigidBody)
 
 
     for rigidBody in rigidBodies:

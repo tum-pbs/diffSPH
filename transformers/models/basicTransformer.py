@@ -41,6 +41,9 @@ class BasicTransformer(torch.nn.Module):
         self.config = copy.deepcopy(config) if config is not None else CommonConfiguration()
         self.config = mergeConfigWithKwargs(self.config, **kwargs)
 
+        # print('Final configuration:')
+        # print(self.config)
+
         mlp_dict = self.config.mlp_dict if self.config.mlp_dict is not None else getDefaultMLPDict()
         mlp_dict['layout'] = [self.config.latent_features] * self.config.mlp_hidden_layers
         mlp_dict['hidden_dim'] = self.config.mlp_latent_dim
@@ -112,8 +115,8 @@ class BasicTransformer(torch.nn.Module):
                     attentionConfig = attentionConfig,
                     messageConfig = messageConfig,
 
-                    verbose = False,
-                    verbosePrefix = f'{verbosePrefix}  L{layer+1}|'
+                    verbose = verbose,
+                    verbosePrefix = f'{verbosePrefix}  L{layer+1}|', **kwargs
                 )
             )
             if self.config.post_message_norm is not None:

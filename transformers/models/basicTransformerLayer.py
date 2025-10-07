@@ -13,7 +13,7 @@ from .basicAttention import BasicAttention
 from .basicEncoder import BasicEncoder
 from .basicAttention import BasicAttention
 from .basicMessaging import BasicMessagePassing
-
+from layers.networkUtil import mergeConfigWithKwargs
 class BasicTransformerLayer(torch.nn.Module):
     def __init__(self, 
                  token_input_dim: int,
@@ -29,8 +29,14 @@ class BasicTransformerLayer(torch.nn.Module):
                  messageConfig: Optional[MessagePassingConfig] = None,
 
                  verbose: bool = False,
-                 verbosePrefix: str = ''
+                 verbosePrefix: str = '',
+                 **kwargs
     ):
+        attentionConfig = mergeConfigWithKwargs(attentionConfig if attentionConfig is not None else AttentionLayerConfig(), **kwargs)
+        # messageConfig = mergeConfigWithKwargs(messageConfig if messageConfig is not None else MessagePassingConfig(), **kwargs)
+
+
+
         super(BasicTransformerLayer, self).__init__()
         verbosePrint('Initializing Basic Transformer Layer...', verbose)
         self.verbose = verbose

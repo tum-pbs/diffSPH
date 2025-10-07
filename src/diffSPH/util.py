@@ -272,3 +272,49 @@ class KernelTerms:
 
     # grad-H Term:
     omega: Optional[torch.Tensor] = None
+
+
+def print_tensor_gpu_memory_recursive(obj, prefix="", silent = True):
+    total_bytes = 0
+
+    # Handle dataclass
+    if hasattr(obj, "__dataclass_fields__"):
+        for field in obj.__dataclass_fields__:
+            value = getattr(obj, field)
+            if isinstance(value, torch.Tensor):
+                size_bytes = value.element_size() * value.numel()
+                total_bytes += size_bytes
+                if not silent:
+                    print(f"{prefix}{field}: {size_bytes / (1024 ** 2):.2f} MB ({size_bytes} bytes) Shape: {value.shape} dtype: {value.dtype} device: {value.device}")
+            elif hasattr(value, "__dataclass_fields__") or isinstance(value, tuple) or isinstance(value, dict):
+                # if not silent:
+                print(f"{'\t' if silent else ''}{prefix}{field}:", end = "" if silent else "\n")
+                total_bytes += print_tensor_gpu_memory_recursive(value, prefix + "  ", silent=silent)
+    # Handle namedtuple
+    elif isinstance(obj, tuple) and hasattr(obj, "_fields"):
+        for field in obj._fields:
+            value = getattr(obj, field)
+            if isinstance(value, torch.Tensor):
+                size_bytes = value.element_size() * value.numel()
+                total_bytes += size_bytes
+                if not silent:
+                    print(f"{prefix}{field}: {size_bytes / (1024 ** 2):.2f} MB ({size_bytes} bytes) Shape: {value.shape} dtype: {value.dtype} device: {value.device}")
+            elif hasattr(value, "__dataclass_fields__") or (isinstance(value, tuple) and hasattr(value, "_fields")) or isinstance(value, dict):
+                # if not silent:
+                print(f"{'\t' if silent else ''}{prefix}{field}:", end = "" if silent else "\n")
+                total_bytes += print_tensor_gpu_memory_recursive(value, prefix + "  ", silent=silent)
+    # Handle dict
+    elif isinstance(obj, dict):
+        for key, value in obj.items():
+            if isinstance(value, torch.Tensor):
+                size_bytes = value.element_size() * value.numel()
+                total_bytes += size_bytes
+                if not silent:
+                    print(f"{prefix}{key}: {size_bytes / (1024 ** 2):.2f} MB ({size_bytes} bytes) Shape: {value.shape} dtype: {value.dtype} device: {value.device}")
+            elif hasattr(value, "__dataclass_fields__") or (isinstance(value, tuple) and hasattr(value, "_fields")) or isinstance(value, dict):
+                # if not silent:
+                print(f"{'\t' if silent else ''}{prefix}{key}:", end = "" if silent else "\n")
+                total_bytes += print_tensor_gpu_memory_recursive(value, prefix + "  ", silent=silent)
+    
+    print(f"{prefix}Total GPU memory used by torch.Tensors: {total_bytes / (1024 ** 2):.2f} MB ({total_bytes} bytes)")
+    return total_bytes
