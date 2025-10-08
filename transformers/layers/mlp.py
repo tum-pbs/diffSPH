@@ -96,7 +96,7 @@ from .networkUtil import verbosePrint
 def getDefaultMLPDict():
     return {
         'layout': [64, 64],
-        'activation': 'tanh',
+        'activation': 'sigmoid',
         'norm': False,
         'bias': False,
         'gain': 1,
@@ -160,12 +160,14 @@ def buildMLPwDict(properties : dict, verbose : bool = False, verbosePrefix = '',
     return mlp
 
 def runMLP_(mlp : torch.nn.Module, features : torch.Tensor, batches : int, verbose : bool = False):  
-    if verbose:
-        print(f'MLP {features.shape} -> {mlp[-1].out_features} features')
+    # if verbose:
+    print(f'MLP {features.shape} -> {mlp[-1].out_features} features')
     transposedFeatures = features.view(batches,-1, *features.shape[1:])
+    print(f'\tTransposed: {transposedFeatures.shape} [min: {torch.min(transposedFeatures) }, max: {torch.max(transposedFeatures)}, mean: {torch.mean(transposedFeatures)}]')
     
     processedFeatures = mlp(transposedFeatures)
+    print(f'\tProcessed: {processedFeatures.shape} [min: {torch.min(processedFeatures)}, max: {torch.max(processedFeatures)}, mean: {torch.mean(processedFeatures)}]')
     processedFeatures = processedFeatures.view(-1, *processedFeatures.shape[2:])
-    if verbose:
-        print(f'\tFeatures: {processedFeatures.shape} [min: {torch.min(processedFeatures)}, max: {torch.max(processedFeatures)}, mean: {torch.mean(processedFeatures)}]')
+    # if verbose:
+    print(f'\tFeatures: {processedFeatures.shape} [min: {torch.min(processedFeatures)}, max: {torch.max(processedFeatures)}, mean: {torch.mean(processedFeatures)}]')
     return processedFeatures

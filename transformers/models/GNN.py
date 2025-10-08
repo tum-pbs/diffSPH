@@ -101,7 +101,7 @@ class GNNModel(torch.nn.Module):
                     projection_dim = self.latent_edge_features,
                     projection_mlp = mlp_dict,
                 ),
-                verbose = False,
+                verbose = verbose,
                 verbosePrefix = 'EdgeEnc|'
             )
 
@@ -146,9 +146,9 @@ class GNNModel(torch.nn.Module):
                     ),
 
                     use_attention = False,
-                    use_node_i = True,
+                    use_node_i = False,
                     use_node_j = False,
-                    use_node_sum = True,
+                    use_node_sum = False,
                     use_node_diff = False,
                     use_edge_features = True,
                     use_window_function = False,
@@ -157,7 +157,7 @@ class GNNModel(torch.nn.Module):
 
 
                 ),
-                    verbose = False,
+                    verbose = verbose,
                     verbosePrefix = f'{verbosePrefix}  L{layer+1}|'
                 )
             )
@@ -203,6 +203,7 @@ class GNNModel(torch.nn.Module):
                     include_spatial = False,
 
                     edge_feature_dim = 2*current_token_dim,
+                    verbose = verbose
                 )
                 self.message_edge_mlps.append(out_edgeMessages)
                 current_edge_dim = self.latent_edge_features
