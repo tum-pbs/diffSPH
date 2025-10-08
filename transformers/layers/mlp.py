@@ -96,10 +96,10 @@ from .networkUtil import verbosePrint
 def getDefaultMLPDict():
     return {
         'layout': [64, 64],
-        'activation': 'celu',
+        'activation': 'tanh',
         'norm': False,
         'bias': False,
-        'gain': 1/np.sqrt(34),
+        'gain': 1,
         'noLinear': False,
         'preNorm': False,
         'postNorm': False,
