@@ -129,7 +129,7 @@ class AttentionLayerConfig:
 def build_projection(linear, inputDim, outputDim, dict = None, verbose = False, verbosePrefix = ''):
     if linear:
         verbosePrint(f'Building linear projection from {inputDim} to {outputDim}', verbose, verbosePrefix=verbosePrefix+'\t')
-        return nn.Linear(inputDim, outputDim)
+        return nn.Linear(inputDim, outputDim, bias= False)
     else:
         if dict is None:
             dict = getDefaultMLPDict()

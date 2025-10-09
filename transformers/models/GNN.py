@@ -21,6 +21,21 @@ from layers.networkUtil import mergeConfigWithKwargs
 from layers.activation import getActivationFromString
 from .common import CommonConfiguration
 
+def printTensor(name, tensor):
+    print(''.join(['-']*80))
+    print(f'Tensor {name}: shape {tensor.shape}, dtype {tensor.dtype}, device {tensor.device}')
+    print(f'\tmin: {tensor.min().item()}, max: {tensor.max().item()}, mean: {tensor.mean().item()}, std: {tensor.std().item()}')
+    # print(tensor)
+    for i in range(tensor.shape[-1]):
+        if len(tensor.shape) == 2:
+            print(f'\tChannel {i}: min: {tensor[:,i].min().item()}, max: {tensor[:,i].max().item()}, mean: {tensor[:,i].mean().item()}, std: {tensor[:,i].std().item()}, data: ')
+        else:
+            print(f'\tChannel {i}: min: {tensor[:,:,i].min().item()}, max: {tensor[:,:,i].max().item()}, mean: {tensor[:,:,i].mean().item()}, std: {tensor[:,:,i].std().item()}, data: ')
+
+    # for i in range(tensor.shape[-2]):
+    #     print(f'\tParticle {i}: min: {tensor[:,i].min().item()}, max: {tensor[:,i].max().item()}, mean: {tensor[:,i].mean().item()}, std: {tensor[:,i].std().item()}, data: ')
+    print(''.join(['-']*80))
+
 
 class GNNModel(torch.nn.Module):
     def __init__(self,
@@ -42,7 +57,7 @@ class GNNModel(torch.nn.Module):
         self.config = mergeConfigWithKwargs(self.config, **kwargs)
 
         mlp_dict = self.config.mlp_dict if self.config.mlp_dict is not None else getDefaultMLPDict()
-        mlp_dict['layout'] = [self.config.latent_features] * self.config.mlp_hidden_layers
+        mlp_dict['layout'] = [64] * self.config.mlp_hidden_layers
         mlp_dict['hidden_dim'] = self.config.mlp_latent_dim
         mlp_dict['activation'] = self.config.mlp_activation
         self.config.mlp_dict = mlp_dict
@@ -166,7 +181,7 @@ class GNNModel(torch.nn.Module):
             if self.config.message_skip_connections:
                 if self.config.message_skip_projection:
                     self.message_projs.append(
-                        torch.nn.Linear(current_token_dim, self.latent_features)
+                        torch.nn.Linear(current_token_dim, self.latent_features, bias = False)
                     )
             if self.config.node_ffn:
                 if layer == self.hidden_layers - 1 and self.config.ffn_skip_last:
@@ -182,7 +197,7 @@ class GNNModel(torch.nn.Module):
                     verbosePrint(f'\t\tUsing skip connection for FFN at layer {layer+1}.', verbose)
                     if self.config.ffn_skip_projection:
                         self.ffn_projs.append(
-                            torch.nn.Linear(self.latent_features, self.latent_features)
+                            torch.nn.Linear(self.latent_features, self.latent_features, bias = False)
                         )
 
 
@@ -242,11 +257,19 @@ class GNNModel(torch.nn.Module):
         edge_features: Optional[Tensor] = None, 
         edge_spatial_features: Optional[Tensor] = None
     ):
+        print(f'GNN forward pass with {node_features.shape[0]} batches, {node_features.shape[1]} nodes per batch, {node_features.shape[2]} features per node.')
+        print(f'\tEdge indices shape: {edge_indices.shape}, edge features shape: {edge_features.shape if edge_features is not None else None}, edge spatial features shape: {edge_spatial_features.shape if edge_spatial_features is not None else None}.')
+
         nodes_query = node_features if isinstance(node_features, Tensor) else node_features[0]
         nodes_key_value = node_features if isinstance(node_features, Tensor) else node_features[1]
 
         positions_query = node_positions if isinstance(node_positions, Tensor) else node_positions[0]
         positions_key_value = node_positions if isinstance(node_positions, Tensor) else node_positions[1]
+
+        printTensor('nodes_query (input)', nodes_query)
+        printTensor('nodes_key_value (input)', nodes_key_value)
+        printTensor('positions_query (input)', positions_query)
+        printTensor('positions_key_value (input)', positions_key_value)
 
         if self.use_encoder:
             nodes_query = self.input_node_encoder(nodes_query, inputPositions=positions_query)
@@ -254,12 +277,18 @@ class GNNModel(torch.nn.Module):
                 nodes_key_value = nodes_query
             else:
                 nodes_key_value = self.input_node_encoder(nodes_key_value, inputPositions=positions_key_value)
+            printTensor('nodes_query (encoded)', nodes_query)
+            printTensor('nodes_key_value (encoded)', nodes_key_value)
 
         if self.use_edge_encoder:
             if edge_features is not None and edge_spatial_features is None:
+                printTensor('edge_features (input)', edge_features)
                 edge_features = self.input_edge_encoder(edge_features)
+                printTensor('edge_features (encoded)', edge_features)
             elif edge_features is None and edge_spatial_features is not None:
+                printTensor('edge_spatial_features (input)', edge_spatial_features)
                 edge_features = self.input_edge_encoder(edge_spatial_features)
+                printTensor('edge_features (encoded)', edge_features)
             else:
                 raise ValueError('Either edge_features or edge_spatial_features must be provided when use_edge_encoder is True.')
         else:
@@ -279,6 +308,8 @@ class GNNModel(torch.nn.Module):
                 positionBiasTokens = None,
                 windowValues = None,
             )
+            printTensor(f'message passing output L{i+1}', ans)
+
             if self.config.message_activation is not None:
                 verbosePrint(f'\tApplying message activation {self.config.message_activation} at layer {i+1}.', self.verbose)
                 ans = self.message_activation(ans)
@@ -308,6 +339,7 @@ class GNNModel(torch.nn.Module):
                 else:
                     ans = ffn_out
 
+            printTensor(f'output after layer L{i+1}', ans)
             verbosePrint(f'\tDone message passing layer {i+1}/{self.hidden_layers}. Shape: {ans.shape}', self.verbose)
 
             if self.use_edge_encoder and self.message_edge_mlps is not None and edge_features is not None and i < len(self.message_edge_mlps):
@@ -329,6 +361,7 @@ class GNNModel(torch.nn.Module):
                 edge_features = newEdges
 
                 verbosePrint(f'\tUpdated edge features through edge MLP at layer {i+1}/{self.hidden_layers}. Shape: {edge_features.shape}', self.verbose)   
+                printTensor(f'edge features after edge MLP L{i+1}', edge_features)
 
             nodes_query = ans
             if isinstance(node_features, Tensor):
@@ -340,7 +373,9 @@ class GNNModel(torch.nn.Module):
 
 
         if self.use_decoder:
+            printTensor('nodes_query (pre-decoder)', nodes_query)
             nodes_query = self.outputDecoder(nodes_query, inputPositions=positions_query)
+            printTensor('nodes_query (decoded)', nodes_query)
 
         return nodes_query
 

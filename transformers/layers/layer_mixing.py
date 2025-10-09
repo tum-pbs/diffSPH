@@ -147,7 +147,7 @@ class TokenMixer(torch.nn.Module):
                     self.config.channel_projection_out_features = input_dim
                 if self.config.channel_projection_linear:
                     verbosePrint(f'Using linear layer for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
-                    self.channel_mixing_layer = nn.Linear(self.config.input_channels * input_dim, self.config.channel_projection_out_features)
+                    self.channel_mixing_layer = nn.Linear(self.config.input_channels * input_dim, self.config.channel_projection_out_features, bias = False)
                 else:
                     verbosePrint(f'Using MLP for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
                     mlp_dict = self.config.channel_projection_mlp_dict
@@ -220,7 +220,7 @@ class TokenMixer(torch.nn.Module):
     def _build_mixing_layer(self):
         mode = self.config.mode.lower()
         if mode == 'linear':
-            mixingLayer = nn.Linear(self.input_dim, self.output_dim)
+            mixingLayer = nn.Linear(self.input_dim, self.output_dim, bias = False)
         elif mode == 'mlp':
             mlp_dict = self.config.mlp_dict
             if mlp_dict is None:
@@ -246,7 +246,7 @@ class TokenMixer(torch.nn.Module):
 
             kernel_output_dim = self.input_dim * self.output_dim
 
-            mixingLayer = nn.Linear(kernel_input_dim, kernel_output_dim)
+            mixingLayer = nn.Linear(kernel_input_dim, kernel_output_dim, bias = False)
         elif mode == 'add' or mode == 'multiply':
             if self.input_dim != self.output_dim:
                 raise ValueError(f'TokenMixer: For mode "{mode}", input_dim ({self.input_dim}) must be equal to output_dim ({self.output_dim})')

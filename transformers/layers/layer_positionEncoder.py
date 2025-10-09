@@ -12,6 +12,23 @@ from typing import Optional, Union, Tuple, List
 from dataclasses import dataclass, field
 from .activation import getActivationFromString
 
+def printTensor(name, tensor):
+    print(''.join(['-']*80))
+    print(f'Tensor {name}: shape {tensor.shape}, dtype {tensor.dtype}, device {tensor.device}')
+    print(f'\tmin: {tensor.min().item()}, max: {tensor.max().item()}, mean: {tensor.mean().item()}, std: {tensor.std().item()}')
+    # print(tensor)
+    for i in range(tensor.shape[-1]):
+        if len(tensor.shape) == 2:
+            print(f'\tChannel {i}: min: {tensor[:,i].min().item()}, max: {tensor[:,i].max().item()}, mean: {tensor[:,i].mean().item()}, std: {tensor[:,i].std().item()}, data: ')
+        else:
+            print(f'\tChannel {i}: min: {tensor[:,:,i].min().item()}, max: {tensor[:,:,i].max().item()}, mean: {tensor[:,:,i].mean().item()}, std: {tensor[:,:,i].std().item()}, data: ')
+
+    # for i in range(tensor.shape[-2]):
+    #     print(f'\tParticle {i}: min: {tensor[:,i].min().item()}, max: {tensor[:,i].max().item()}, mean: {tensor[:,i].mean().item()}, std: {tensor[:,i].std().item()}, data: ')
+    print(''.join(['-']*80))
+
+
+
 _ = """
 The basis encoding layer acts as part of the absolute and relative position biases and  can be treated as part of the continuous convolution operation.
 
@@ -72,6 +89,7 @@ class BasisEncoderConfig:
     projection_linear:  bool            = field(default=True,       metadata={"help": "Use linear encoding for APB"})
     projection_mlp:     Optional[dict]  = field(default=None,       metadata={"help": "MLP architecture for APB"})
     projection_dim:     Optional[int]   = field(default=None,       metadata={"help": "Output dimension of APB if projection is used"})
+    projection_bias:    bool            = field(default=False,      metadata={"help": "Use bias in projection layer"})
 
     normalize_positions:bool            = field(default=False,      metadata={"help": "If set to true, apply a manual normalization to the input to be within radius 1 and center 0."})
     clamp_positions:    bool            = field(default=False,      metadata={"help": "If set to true, clamp the input positions to be within radius 1 and center 0."})
@@ -214,16 +232,18 @@ class BasisEncoder(nn.Module):
         verbosePrint(f'{verbosePrefix}BasisEncoder: basisShape={self.basisShape}, total basis terms={self.basisTerms}, outputShape={self.outputShape}', verbose)
     
         if self.config.base_scaling:
-            self.scaling = nn.Linear(self.basisTerms, self.basisTerms)
+            self.scaling = nn.Linear(self.basisTerms, self.basisTerms, bias=self.config.projection_bias)
             
         verbosePrint(f'{verbosePrefix}BasisEncoder: project_out={self.config.projection}, outputShape={self.outputShape}', verbose)
     
         if self.config.projection:
             if self.config.projection_linear:
-                self.projector = nn.Linear(self.basisTerms, self.outputShape)
+                self.projector = nn.Linear(self.basisTerms, self.outputShape, bias=self.config.projection_bias)
             else:
                 if self.config.projection_mlp is None:
                     self.config.projection_mlp = getDefaultMLPDict()
+
+                    self.config.projection_mlp['bias'] = self.config.projection_bias
 
                 self.projector = buildMLPwDict(self.config.projection_mlp,inputDim=self.basisTerms,outputDim=self.outputShape, verbose=verbose, verbosePrefix=verbosePrefix+'\t')
         else:
@@ -249,6 +269,7 @@ class BasisEncoder(nn.Module):
 
         verbosePrint(f'{self.verbosePrefix}Input positions shape before shapeMatch: {inputPositions.shape}', verbose=self.verbose)
         verbosePrint(f'{self.verbosePrefix}Input positions shape after shapeMatch: {normalizedPositions.shape}, batches={batches}, entries={entries}, dim={dim}', verbose=self.verbose)
+        printTensor('Input positions after shapeMatch', normalizedPositions)
         if normalizedPositions.shape != inputPositions.shape:
             mapped = True
         else:
@@ -271,6 +292,8 @@ class BasisEncoder(nn.Module):
         if self.config.base_projection != 'cartesian':
             normalizedPositions = map_positions(normalizedPositions, self.config.base_projection)
             verbosePrintSpatialTensorStats(normalizedPositions, name=f'Mapped Positions ({self.config.base_projection})', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+
+        printTensor('Input positions after optional normalization/clamping/mapping', normalizedPositions)
 
         bTerms = []
         if self.config.base_encoding:
@@ -305,6 +328,8 @@ class BasisEncoder(nn.Module):
         else:
             raise ValueError(f'Unknown mode: {self.config.base_mode}')
         
+        printTensor('Basis terms before scaling/projection', combinedTerms)
+        
         verbosePrint(f'Combined basis terms shape: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         
         if self.config.base_scaling:
@@ -313,16 +338,21 @@ class BasisEncoder(nn.Module):
         if self.activation_fn is not None:
             combinedTerms = self.activation_fn(combinedTerms)
             verbosePrint(f'Activated basis terms shape: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            printTensor('Activated basis terms', combinedTerms)
 
         # now combinedTerms is of shape [E, combinedBasisTerms]
         # map back to [B,N,combinedBasisTerms] or [E,combinedBasisTerms]
         if mapped:
             verbosePrint(f'Reshaping output to include batch dimension: {batches}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             combinedTerms = combinedTerms.view(batches, -1, combinedTerms.shape[-1])
+            verbosePrint(f'Output shape after reshaping: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            printTensor('Basis terms after reshaping', combinedTerms)
         # now apply the projection if needed
         if self.config.projection:
             verbosePrint(f'Applying projection: {self.config.projection}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             combinedTerms = self.projector(combinedTerms)
+            verbosePrint(f'Output shape after projection: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            printTensor('Basis terms after projection', combinedTerms)
             
         verbosePrint(f'BasisEncoder output shape: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         return combinedTerms
