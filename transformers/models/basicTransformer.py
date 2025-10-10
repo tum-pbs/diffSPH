@@ -124,7 +124,7 @@ class BasicTransformer(torch.nn.Module):
             if self.config.message_skip_connections:
                 if self.config.message_skip_projection:
                     self.message_projs.append(
-                        torch.nn.Linear(current_token_dim, self.latent_features)
+                        torch.nn.Linear(current_token_dim, self.latent_features, bias=False)
                     )
             if self.config.node_ffn:
                 if layer == self.hidden_layers - 1 and self.config.ffn_skip_last:
@@ -140,7 +140,7 @@ class BasicTransformer(torch.nn.Module):
                     verbosePrint(f'\t\tUsing skip connection for FFN at layer {layer+1}.', verbose)
                     if self.config.ffn_skip_projection:
                         self.ffn_projs.append(
-                            torch.nn.Linear(self.latent_features, self.latent_features)
+                            torch.nn.Linear(self.latent_features, self.latent_features, bias=False)
                         )
 
             current_token_dim = self.latent_features

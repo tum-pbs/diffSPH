@@ -50,7 +50,7 @@ def buildMLPwActivation(layers, inputFeatures = 1, gain = 1/np.sqrt(34), activat
                 modules.append((f'linear{linear}', nn.Linear(inputFeatures if i == 0 else layers[i-1],layers[i], bias = bias)))
                 linear += 1
 
-                # torch.nn.init.uniform_(modules[-1].weight,-0.5, 0.5)
+                torch.nn.init.uniform_(modules[-1][1].weight,-1/np.sqrt(inputFeatures) * gain, 1/np.sqrt(inputFeatures) * gain)
                 # torch.nn.init.xavier_normal_(modules[-1][1].weight,1)
         #         torch.nn.init.zeros_(modules[-1].weight)
                 if bias:
@@ -72,6 +72,7 @@ def buildMLPwActivation(layers, inputFeatures = 1, gain = 1/np.sqrt(34), activat
             modules.append((f'linear{linear}', nn.Linear(layers[-2],layers[-1], bias = bias)))
         else:
             modules.append((f'linear{linear}', nn.Linear(inputFeatures,layers[-1], bias = bias))  )
+        torch.nn.init.uniform_(modules[-1][1].weight,-1/np.sqrt(inputFeatures) * gain, 1/np.sqrt(inputFeatures) * gain)
         # torch.nn.init.xavier_normal_(modules[-1][1].weight,gain)
         if bias:
             torch.nn.init.zeros_(modules[-1][1].bias)     

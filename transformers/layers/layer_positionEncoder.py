@@ -11,6 +11,7 @@ from .networkUtil import verbosePrint, verboseBannerPrint
 from typing import Optional, Union, Tuple, List
 from dataclasses import dataclass, field
 from .activation import getActivationFromString
+import numpy as np
 
 def printTensor(name, tensor):
     print(''.join(['-']*80))
@@ -239,6 +240,10 @@ class BasisEncoder(nn.Module):
         if self.config.projection:
             if self.config.projection_linear:
                 self.projector = nn.Linear(self.basisTerms, self.outputShape, bias=self.config.projection_bias)
+
+                if self.config.base_mode == 'cat':
+                    gain = np.sqrt(3)
+                    nn.init.uniform_(self.projector.weight,-1/np.sqrt(self.basisTerms) * gain, 1/np.sqrt(self.basisTerms) * gain)
             else:
                 if self.config.projection_mlp is None:
                     self.config.projection_mlp = getDefaultMLPDict()

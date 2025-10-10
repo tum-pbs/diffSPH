@@ -112,7 +112,7 @@ class GNNModel(torch.nn.Module):
                     base_projection = self.config.basis_projection,
 
                     projection = True,
-                    projection_linear = False,
+                    projection_linear = True,
                     projection_dim = self.latent_edge_features,
                     projection_mlp = mlp_dict,
                 ),

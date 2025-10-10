@@ -272,10 +272,28 @@ def correctFourierBasis(n : int, x : torch.Tensor):
     return (torch.sin((n // 2 + 1) * x) * sqrt_pi_1)
 
 @torch.jit.script
+def preservingFourier(n : int, x : torch.Tensor):
+    '''For a uniform distribution in [a,b], the standard deviation is (b-a)/sqrt(12). For [-1,1], this is 2/sqrt(12) ~ 0.577.
+For sin(pi*x) over [-1,1], the standard deviation is 1/sqrt(2) ~ 0.707.
+We want the basis function approach to preserve the standard deviation of the input signal, so that the network can learn effectively. For a fourier basis this means that we need to scale the basis functions by sqrt(2)*sqrt(12)/6 = sqrt(6) ~ 2.449. 
+Note that for a normal fourier basis the scaling coefficient is usually 1/sqrt(pi).
+'''
+    scaling = 0.816496580927726 # np.sqrt(2) / 6 *np.sqrt(12)
+    if n % 2 == 0:
+        return (torch.cos((n // 2 + 1) * x) * scaling)
+    return (torch.sin((n // 2 + 1) * x) * scaling)
+
+
+import math
+
+@torch.jit.script
 def buildFourierSeries(n : int, x : torch.Tensor, kind : str = 'fourier'):
     sqrt_pi_1 = 0.5641895835477563
     sqrt_2pi_1 = 0.3989422804014327
     ndc = True if 'ndc' in kind else False
+
+    scaling = 1 / math.sqrt(2) / math.sqrt((n-1)/n) * math.sqrt(2) / 6 * math.sqrt(12)
+
     fs = []
     for i in range(n):
         if not ndc and i == 0:
@@ -284,7 +302,7 @@ def buildFourierSeries(n : int, x : torch.Tensor, kind : str = 'fourier'):
             elif 'sgn' in kind:
                 fs.append(torch.sign(x) / 2. * np.pi)
             else:
-                fs.append(torch.ones_like(x) * sqrt_2pi_1)
+                fs.append(torch.ones_like(x) * (sqrt_2pi_1 if not 'pfourier' in kind else scaling))
             continue
         if 'odd' in kind:
             fs.append(torch.sin(((i - (0 if ndc else 1)) + 1) * x) * sqrt_pi_1)
@@ -292,6 +310,8 @@ def buildFourierSeries(n : int, x : torch.Tensor, kind : str = 'fourier'):
             fs.append(torch.cos(((i - (0 if ndc else 1)) + 1) * x) * sqrt_pi_1)
         elif 'ffourier' in kind:
             fs.append(correctFourierBasis(i - (0 if ndc else 1),x))
+        elif 'pfourier' in kind:
+            fs.append(preservingFourier(i - (0 if ndc else 1),x))
         else:
             fs.append(wrongFourierBasis(i + (1 if ndc else 0),x))
     return torch.stack(fs)
