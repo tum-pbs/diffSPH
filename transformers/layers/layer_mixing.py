@@ -19,7 +19,8 @@ from .basisFunctions import basisEncoderLayer
 from .networkUtil import verbosePrint, verboseBannerPrint
 from .sparse import buildSparseTensor
 from .softmax import softmax
-from .mlp import buildMLPwDict, getDefaultMLPDict
+# from .mlp import buildMLPwDict, getDefaultMLPDict
+from .layer_mlp import MLP, MLPConfig
 from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
 from .windows import getWindowFunction
 from typing import Optional, Union, Tuple
@@ -27,6 +28,22 @@ from dataclasses import dataclass, field
 from .networkUtil import shapeMatch, verbosePrintSpatialTensorStats, mergeConfigWithKwargs, checkTensorShape
 import copy
 from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape, BasisEncoderConfig
+
+
+def printTensor(name, tensor):
+    print(''.join(['-']*80))
+    print(f'Tensor {name}: shape {tensor.shape}, dtype {tensor.dtype}, device {tensor.device}')
+    print(f'\tmin: {tensor.min().item()}, max: {tensor.max().item()}, mean: {tensor.mean().item()}, std: {tensor.std().item()}')
+    # print(tensor)
+    for i in range(tensor.shape[-1]):
+        if len(tensor.shape) == 2:
+            print(f'\tChannel {i}: min: {tensor[:,i].min().item()}, max: {tensor[:,i].max().item()}, mean: {tensor[:,i].mean().item()}, std: {tensor[:,i].std().item()}, data: ')
+        else:
+            print(f'\tChannel {i}: min: {tensor[:,:,i].min().item()}, max: {tensor[:,:,i].max().item()}, mean: {tensor[:,:,i].mean().item()}, std: {tensor[:,:,i].std().item()}, data: ')
+
+    # for i in range(tensor.shape[-2]):
+    #     print(f'\tParticle {i}: min: {tensor[:,i].min().item()}, max: {tensor[:,i].max().item()}, mean: {tensor[:,i].mean().item()}, std: {tensor[:,i].std().item()}, data: ')
+    print(''.join(['-']*80))
 
 
 
@@ -46,7 +63,7 @@ class TokenMixerConfig:
 
     skip_token_mixing: bool = field(default=False, metadata={"help": "If True, skip the token mixing and just return the input tokens (still performs channel mixing)"})
     mode: str = field(default='linear', metadata={"help": "Type of token mixing to use ('linear', 'mlp' or 'cconv', 'add', 'multiply')"})
-    mlp_dict : Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for attention score computation "})
+    # mlp_dict : Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for attention score computation "})
 
     include_edges: bool = field(default=False, metadata={"help": "Whether to use edge features in the attention score computation"})
     include_spatial: bool = field(default=True, metadata={"help": "Whether to use spatial information in the attention score computation"})
@@ -60,7 +77,7 @@ class TokenMixerConfig:
     channel_mixing_operation: str = field(default='add', metadata={"help": "Operation to use for channel mixing ('add', 'multiply', 'concat', 'subtract', 'project', 'mean')"})
 
     channel_projection_linear: bool = field(default=False, metadata={"help": "If channel_mixing is True and channel_mixing_operation is 'project', whether to use a linear layer for projection (if False, use an MLP)"})
-    channel_projection_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for channel projection (if channel_mixing_operation is 'project' and channel_projection_linear is False)"})
+    # channel_projection_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for channel projection (if channel_mixing_operation is 'project' and channel_projection_linear is False)"})
     channel_projection_out_features: Optional[int] = field(default=None, metadata={"help": "Output feature dimension after channel projection (if None, use transformer_features)"})
     channel_normalization: Optional[Union[float,str]] = field(default=None, metadata={"help": "Normalization to apply after channel mixing (if any), could be 'cosine', 'scaled'(uses d_k) or a float value to scale the output by"})
 
@@ -77,22 +94,27 @@ class TokenMixerConfig:
 """"""
 
 from typing import List
+# from layer_mlp import MLP, MLPConfig
 
 class TokenMixer(torch.nn.Module):
     def __init__(self, 
                  config: Optional[TokenMixerConfig] = None,
+                 mlpConfig: Optional[MLPConfig] = None,
                  verbose: bool = False,
                  verbosePrefix: str = '',
                  **kwargs
     ):
         super(TokenMixer, self).__init__()
         verboseBannerPrint('Initializing Input Mix Layer...', verbose)
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
 
         if config is None:
             config = TokenMixerConfig()
         else:
             config = copy.deepcopy(config)
         self.config = mergeConfigWithKwargs(config, **kwargs)
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
 
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
@@ -150,10 +172,11 @@ class TokenMixer(torch.nn.Module):
                     self.channel_mixing_layer = nn.Linear(self.config.input_channels * input_dim, self.config.channel_projection_out_features, bias = False)
                 else:
                     verbosePrint(f'Using MLP for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
-                    mlp_dict = self.config.channel_projection_mlp_dict
-                    if mlp_dict is None:
-                        mlp_dict = getDefaultMLPDict()
-                    self.channel_mixing_layer = buildMLPwDict(mlp_dict, inputDim=self.config.input_channels * input_dim, outputDim=self.config.channel_projection_out_features)
+                    # mlp_dict = self.config.channel_projection_mlp_dict
+                    # if mlp_dict is None:
+                        # mlp_dict = getDefaultMLPDict()
+                    # self.channel_mixing_layer = buildMLPwDict(mlp_dict, inputDim=self.config.input_channels * input_dim, outputDim=self.config.channel_projection_out_features)
+                    self.channel_mixing_layer = MLP(in_features = self.config.input_channels * input_dim, out_features = self.config.channel_projection_out_features, config = self.mlpConfig, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t\t')
                     
                 input_dim = self.config.channel_projection_out_features
                 verbosePrint(f'Using channel projection with output features {self.config.channel_projection_out_features}', verbose, verbosePrefix=self.verbosePrefix+'\t')
@@ -222,10 +245,14 @@ class TokenMixer(torch.nn.Module):
         if mode == 'linear':
             mixingLayer = nn.Linear(self.input_dim, self.output_dim, bias = False)
         elif mode == 'mlp':
-            mlp_dict = self.config.mlp_dict
-            if mlp_dict is None:
-                mlp_dict = getDefaultMLPDict()
-            mixingLayer = buildMLPwDict(mlp_dict, inputDim=self.input_dim, outputDim=self.output_dim)
+            # mlp_dict = self.config.mlp_dict
+            # if mlp_dict is None:
+                # mlp_dict = getDefaultMLPDict()
+
+            verbosePrint('Building MLP mixing layer with config:', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            # verbosePrint(str(mlp_dict), self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+            mixingLayer = MLP(in_features = self.input_dim, out_features = self.output_dim, config = self.mlpConfig, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+            # mixingLayer = buildMLPwDict(mlp_dict, inputDim=self.input_dim, outputDim=self.output_dim)
         elif mode == 'cconv':
             if self.config.cconv_source not in ['rpb', 'spatial', 'edge']:
                 raise ValueError(f"TokenMixer: cconv_source must be one of 'rpb', 'spatial' or 'edge', got {self.config.cconv_source}")
@@ -264,6 +291,10 @@ class TokenMixer(torch.nn.Module):
         positionBiasTokens: Optional[Tensor] = None,          
     ):
         verbosePrint(f'Mixing head {headIndex} with mode {self.config.mode}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t', separator=True)
+
+        for i, input in enumerate(headInput):
+            verbosePrint(f'Head {headIndex} input token {i} shape: {input.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t\t')
+            printTensor(f'head{headIndex}_input{i}', input)
 
         if self.config.mode == 'linear' or self.config.mode == 'mlp':
             verbosePrint(f'Using {"linear" if self.config.mode == "linear" else "MLP"} mixing layer', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
@@ -321,6 +352,7 @@ class TokenMixer(torch.nn.Module):
         else:
             raise ValueError(f"TokenMixer: mode must be one of 'linear', 'mlp' or 'cconv', got {self.config.mode}")
         verbosePrint(f'Head {headIndex} mixed output shape: {mixedHead.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t\t')
+        printTensor(f'head{headIndex}_mixed', mixedHead)
         return mixedHead
 
         

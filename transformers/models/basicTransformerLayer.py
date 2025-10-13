@@ -3,6 +3,7 @@ from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
 from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
 from layers.layer_mixing import TokenMixer, TokenMixerConfig
 from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
+from layers.layer_mlp import MLP, MLPConfig
 import torch
 import copy
 from layers.networkUtil import verbosePrint, verboseBannerPrint
@@ -27,11 +28,14 @@ class BasicTransformerLayer(torch.nn.Module):
 
                  attentionConfig: Optional[AttentionLayerConfig] = None,
                  messageConfig: Optional[MessagePassingConfig] = None,
+                 mlpConfig: Optional[MLPConfig] = None,  
 
                  verbose: bool = False,
                  verbosePrefix: str = '',
                  **kwargs
     ):
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         attentionConfig = mergeConfigWithKwargs(attentionConfig if attentionConfig is not None else AttentionLayerConfig(), **kwargs)
         # messageConfig = mergeConfigWithKwargs(messageConfig if messageConfig is not None else MessagePassingConfig(), **kwargs)
 
@@ -41,6 +45,7 @@ class BasicTransformerLayer(torch.nn.Module):
         verbosePrint('Initializing Basic Transformer Layer...', verbose)
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
 
 
         self.token_input_dim = token_input_dim
@@ -63,7 +68,8 @@ class BasicTransformerLayer(torch.nn.Module):
             attention_heads = attention_heads,
             verbose = verbose,
             verbosePrefix = f'{verbosePrefix}  L{layer+1}|',
-            attentionConfig = attentionConfig
+            attentionConfig = attentionConfig,
+            mlpConfig = self.mlpConfig
             )
         )
         self.message_layers_list.append(
@@ -75,7 +81,8 @@ class BasicTransformerLayer(torch.nn.Module):
                 attention_heads = attention_heads,
                 messageConfig = messageConfig,
                 verbose = verbose,
-                verbosePrefix = f'{verbosePrefix}  L{layer+1}|'
+                verbosePrefix = f'{verbosePrefix}  L{layer+1}|',
+                mlpConfig = self.mlpConfig
             )
         )
 

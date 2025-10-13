@@ -9,7 +9,7 @@ from layers.networkUtil import verbosePrint, verboseBannerPrint
 from typing import Optional, Tuple, Union, List
 from torch import Tensor
 
-from layers.mlp import getDefaultMLPDict, buildMLPwDict
+# from layers.mlp import getDefaultMLPDict, buildMLPwDict
 
 from .basicAttention import BasicAttention
 from .basicEncoder import BasicEncoder
@@ -58,8 +58,8 @@ class CommonConfiguration:
     basis_mode: str = field(default='cat', metadata={"help": "Mode for combining basis encodings."})
 
     # MLP configuration
-    mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Configuration dictionary for MLPs used in the model."})
-    mlp_hidden_layers : int = field(default=2, metadata={"help": "Number of hidden layers in MLPs."})
-    mlp_latent_dim : int = field(default=32, metadata={"help": "Latent dimensionality in MLPs."})
-    mlp_activation : str = field(default='silu', metadata={"help": "Activation function in MLPs."})
+    # mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Configuration dictionary for MLPs used in the model."})
+    # mlp_hidden_layers : int = field(default=2, metadata={"help": "Number of hidden layers in MLPs."})
+    # mlp_latent_dim : int = field(default=32, metadata={"help": "Latent dimensionality in MLPs."})
+    # mlp_activation : str = field(default='silu', metadata={"help": "Activation function in MLPs."})
     

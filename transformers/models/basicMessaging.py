@@ -3,6 +3,7 @@ from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
 from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
 from layers.layer_mixing import TokenMixer, TokenMixerConfig
 from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
+from layers.layer_mlp import MLP, MLPConfig
 import torch
 import copy
 from layers.networkUtil import verbosePrint, verboseBannerPrint
@@ -20,10 +21,13 @@ class BasicMessagePassing(torch.nn.Module):
                  attention_heads: int = 4,
 
                  messageConfig: Optional[MessagePassingConfig] = None,
+                 mlpConfig: Optional[MLPConfig] = None,
 
                  verbose: bool = False,
                  verbosePrefix: str = ''
     ):
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         super(BasicMessagePassing, self).__init__()
         verbosePrint('Initializing Basic Message Passing...', verbose)
         self.config = copy.deepcopy(messageConfig) if messageConfig is not None else MessagePassingConfig()
@@ -58,7 +62,7 @@ class BasicMessagePassing(torch.nn.Module):
 
             self.config.position_bias_config = None
 
-        self.messenger = MessagePassingLayer(self.config, verbose, verbosePrefix)
+        self.messenger = MessagePassingLayer(self.config, verbose = verbose, verbosePrefix = verbosePrefix, mlpConfig=self.mlpConfig)
 
         verbosePrint(f'\tToken Encoder config: {self.config}', verbose)
         numberOfParameters = sum(p.numel() for p in self.messenger.parameters())

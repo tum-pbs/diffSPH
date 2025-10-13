@@ -5,6 +5,7 @@ from layers.layer_mixing import TokenMixer, TokenMixerConfig
 import torch
 import copy
 from layers.networkUtil import verbosePrint, verboseBannerPrint
+from layers.layer_mlp import MLP, MLPConfig
 from typing import Optional
 from torch import Tensor
 
@@ -19,13 +20,18 @@ class BasicAttention(torch.nn.Module):
                  attention_heads: int = 4,
 
                  attentionConfig: Optional[AttentionLayerConfig] = None,
+                 mlpConfig: Optional[MLPConfig] = None,
+
 
                  verbose: bool = False,
                  verbosePrefix: str = ''
     ):
         super(BasicAttention, self).__init__()
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         verbosePrint('Initializing Basic Attention...', verbose)
         self.config = copy.deepcopy(attentionConfig) if attentionConfig is not None else AttentionLayerConfig()
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
 
@@ -61,7 +67,7 @@ class BasicAttention(torch.nn.Module):
             self.config.encode_tokens = True
             self.config.encode_tokens_shared = False
 
-        self.attention = AttentionMechanismLayer(self.config, verbose, verbosePrefix)
+        self.attention = AttentionMechanismLayer(self.config, verbose = verbose, verbosePrefix = verbosePrefix, mlpConfig=self.mlpConfig)
 
         verbosePrint(f'\tToken Encoder config: {self.config}', verbose)
         numberOfParameters = sum(p.numel() for p in self.attention.parameters())

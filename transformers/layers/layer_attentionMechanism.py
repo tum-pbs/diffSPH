@@ -18,7 +18,8 @@ from .networkUtil import verbosePrint, verboseBannerPrint, shapeMatch, checkTens
 import copy
 from .sparse import buildSparseTensor
 from .softmax import softmax
-from .mlp import buildMLPwDict, getDefaultMLPDict
+# from .mlp import buildMLPwDict, getDefaultMLPDict
+from .layer_mlp import MLP, MLPConfig
 from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
 from .windows import getWindowFunction
 from .softmax import softmax_
@@ -103,12 +104,12 @@ class AttentionLayerConfig:
 
     encode_tokens: bool = field(default=True, metadata={"help": "Whether to encode the query and key tokens"})
     encode_tokens_linear: bool = field(default=True, metadata={"help": "Whether to use a linear layer for token encoding (if False, use MLP)"})
-    encode_tokens_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for token encoding (if encode_tokens_linear is False)"})
+    # encode_tokens_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for token encoding (if encode_tokens_linear is False)"})
     encode_tokens_shared: bool = field(default=False, metadata={"help": "Whether to share the token encoding MLP between query and key"})
     encode_using_cconv: bool = field(default=False, metadata={"help": "Whether to use continuous convolution mode (use edge features to compute W_Q and W_K)"})
     cconv_source: str = field(default='rpb', metadata={"help": "Whether to use edge features or relative position bias to compute the cconv weights ('edge', 'rpb', 'spatial', 'window', 'spatial_length')"})
     cconv_linear: bool = field(default=True, metadata={"help": "Whether to use a linear layer for cconv weight computation (if False, use MLP)"})
-    cconv_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for cconv weight computation (if cconv_linear is False)"})
+    # cconv_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for cconv weight computation (if cconv_linear is False)"})
 
     # position_bias: bool = field(default=True, metadata={"help": "Whether to use relative position bias"})
     # position_bias_mixing: str = field(default='add', metadata={"help": "Whether to add or multiply the position bias to the attention scores ('add', 'mul')"})
@@ -126,29 +127,34 @@ class AttentionLayerConfig:
     postAttentionMixer: Optional[TokenMixerConfig] = field(default=None,)
     position_bias_config: Optional[BasisEncoderConfig] = field(default=None, metadata={"help": "Configuration for the relative position bias basis encoder"})
 
-def build_projection(linear, inputDim, outputDim, dict = None, verbose = False, verbosePrefix = ''):
+def build_projection(linear, inputDim, outputDim, dict: Optional[MLPConfig] = None, verbose = False, verbosePrefix = ''):
     if linear:
         verbosePrint(f'Building linear projection from {inputDim} to {outputDim}', verbose, verbosePrefix=verbosePrefix+'\t')
         return nn.Linear(inputDim, outputDim, bias= False)
     else:
         if dict is None:
-            dict = getDefaultMLPDict()
+            dict = copy.deepcopy(MLPConfig())
+
         verbosePrint(f'Building MLP projection from {inputDim} to {outputDim} with config: {dict}', verbose, verbosePrefix=verbosePrefix+'\t')
-        return buildMLPwDict(dict, verbose=verbose, verbosePrefix=verbosePrefix+'\t', inputDim=inputDim, outputDim=outputDim)
+        return MLP(in_features = inputDim, out_features = outputDim, config = dict, verbose = verbose, verbosePrefix = verbosePrefix+'\t')
 
 class AttentionMechanismLayer(torch.nn.Module):
     def __init__(self, 
                 config : AttentionLayerConfig,
+                mlpConfig: Optional[MLPConfig] = None,
                 verbose: bool = False,
                 verbosePrefix: str = '',
                 **kwargs
                  ):
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         verboseBannerPrint(f'Initializing Attention Mechanism Layer...', verbose)
         super(AttentionMechanismLayer, self).__init__()
         verbosePrint(f'Initializing Attention Mechanism Layer with parameters:', verbose, separator=True)
 
         config = copy.deepcopy(config)
         self.config = mergeConfigWithKwargs(config, **kwargs)
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
 
@@ -207,7 +213,7 @@ class AttentionMechanismLayer(torch.nn.Module):
                     linear = self.config.encode_tokens_linear,
                     inputDim = self.token_input_dim,
                     outputDim = self.num_heads * self.transformer_features,
-                    dict = self.config.encode_tokens_mlp_dict,
+                    dict = self.mlpConfig,
                     verbose = self.verbose,
                     verbosePrefix = self.verbosePrefix+'\t'
                 )
@@ -219,7 +225,7 @@ class AttentionMechanismLayer(torch.nn.Module):
                         linear = self.config.encode_tokens_linear,
                         inputDim = self.token_input_dim,
                         outputDim = self.num_heads * self.transformer_features,
-                        dict = self.config.encode_tokens_mlp_dict,
+                        dict = self.mlpConfig,
                         verbose = self.verbose,
                         verbosePrefix = self.verbosePrefix+'\t'
                     )
@@ -276,7 +282,7 @@ class AttentionMechanismLayer(torch.nn.Module):
                 linear = self.config.cconv_linear,
                 inputDim = cconv_input_dim,
                 outputDim = self.num_heads * self.transformer_features * self.token_input_dim,
-                dict = self.config.cconv_mlp_dict,
+                dict = self.mlpConfig,
                 verbose = self.verbose,
                 verbosePrefix = self.verbosePrefix+'\t'
             )
@@ -288,7 +294,7 @@ class AttentionMechanismLayer(torch.nn.Module):
                     linear = self.config.cconv_linear,
                     inputDim = cconv_input_dim,
                     outputDim = self.num_heads * self.transformer_features * self.token_input_dim,
-                    dict = self.config.cconv_mlp_dict,
+                    dict = self.mlpConfig,
                     verbose = self.verbose,
                     verbosePrefix = self.verbosePrefix+'\t'
                 )
@@ -330,7 +336,7 @@ class AttentionMechanismLayer(torch.nn.Module):
         elif mode == 'mlp':
             self.preAttentionMixer.channel_mixing_operation = 'project'
             self.preAttentionMixer.channel_projection_linear = False
-            self.preAttentionMixer.channel_projection_mlp_dict = self.config.encode_tokens_mlp_dict
+            # self.preAttentionMixer.channel_projection_mlp_dict = self.mlpConfig
             self.preAttentionMixer.channel_normalization = None
             verbosePrint(f'Using MLP attention mechanism.', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         elif mode == 'linear':
@@ -341,7 +347,7 @@ class AttentionMechanismLayer(torch.nn.Module):
         else:
             raise ValueError(f"AttentionMechanismLayer: attention_mechanism must be one of 'dot', 'scaled_dot', 'mlp', 'linear', 'cosine', got {mode}")
 
-        self.preMixer = TokenMixer(self.preAttentionMixer, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+        self.preMixer = TokenMixer(self.preAttentionMixer, mlpConfig = mlpConfig, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
 
         verboseBannerPrint(f'Post Attention Mixer...', self.verbose)
         self.postAttentionMixer = nn.Identity()

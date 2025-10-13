@@ -18,7 +18,8 @@ from .layer_positionEncoder import BasisEncoder
 from .networkUtil import verbosePrint, verboseBannerPrint
 from .sparse import buildSparseTensor
 from .softmax import softmax
-from .mlp import buildMLPwDict, getDefaultMLPDict
+# from .mlp import buildMLPwDict, getDefaultMLPDict
+from .layer_mlp import MLP, MLPConfig
 
 
 # Input Encoding Layer
@@ -78,17 +79,17 @@ class TokenEncoderConfig:
 
     projection:             bool = field(default=True, metadata={"help": "If True, project input features to output dimension using a linear layer or MLP"})
     projection_linear:      bool = field(default=True, metadata={"help": "If True, use a linear layer for input feature projection, if False use an MLP"})
-    projection_mlp_dict:    Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for input feature projection (if projection_linear is False)"})
+    # projection_mlp_dict:    Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for input feature projection (if projection_linear is False)"})
 
     position_bias:          Optional[BasisEncoderConfig] = field(default=None, metadata={"help": "Configuration for absolute position bias (APB) encoding. If None, APB is disabled."})
     position_bias_mixing:   Optional[str] = field(default=None, metadata={"help": "Mode for combining position bias with input features. Options: 'cat' (concatenate), 'add' (additive), 'mul' (multiplicative), 'mix' (use linear or MLP to combine)"})
     position_bias_linear:   bool = field(default=True, metadata={"help": "If True, use a linear layer for position bias projection, if False use an MLP"})
-    position_bias_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for position bias projection (if position_bias_linear is False)"})
+    # position_bias_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for position bias projection (if position_bias_linear is False)"})
     position_bias_dim:     Optional[int] = field(default=None, metadata={"help": "Override position_bias_dim, used when there is no position bias encoder within this layer but the information is provided externally."})
 
     use_ffn:                bool = field(default=False, metadata={"help": "If True, use a feed-forward network (FFN) after input encoding"})
     ffn_linear:             bool = field(default=False, metadata={"help": "If True, use a linear layer for the FFN, if False use an MLP"})
-    ffn_mlp_dict:           Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for the FFN (if ffn_linear is False)"})
+    # ffn_mlp_dict:           Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for the FFN (if ffn_linear is False)"})
     ffn_skip_connection:    bool = field(default=False, metadata={"help": "If True, use skip connection in the FFN"})
     pre_norm:               bool = field(default=False, metadata={"help": "If True, apply layer normalization before the feed-forward network"})
     post_norm:              bool = field(default=False, metadata={"help": "If True, apply layer normalization after the feed-forward network"})
@@ -102,10 +103,13 @@ class TokenEncoder(torch.nn.Module):
     def __init__(self, 
                  token_input_dim:         int = field(metadata={"help": "Dimensionality of the input feature vector per token"}),
                  config: Optional[TokenEncoderConfig] = None,
+                 mlpConfig: Optional[MLPConfig] = None,
                  verbose: bool = False,
                  verbosePrefix: str = '',
                  **kwargs
     ):
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         super(TokenEncoder, self).__init__()
         verboseBannerPrint('Initializing Input Encode Layer...', verbose)
 
@@ -115,6 +119,7 @@ class TokenEncoder(torch.nn.Module):
             config = copy.deepcopy(config)
             config.token_input_dim = token_input_dim
         self.config = mergeConfigWithKwargs(config, **kwargs)
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
 
@@ -157,8 +162,10 @@ class TokenEncoder(torch.nn.Module):
                 self.pbMixer = nn.Linear(self.latent_token_dim + self.apbDim, self.latent_token_dim, bias=False)
             else:
                 verbosePrint(f'\tUsing MLP for position bias mixing', self.verbose, self.verbosePrefix)
-                mlpDict = self.config.position_bias_mlp_dict if self.config.position_bias_mlp_dict is not None else getDefaultMLPDict()
-                self.pbMixer = buildMLPwDict(mlpDict, inputDim=self.latent_token_dim + self.apbDim, outputDim=self.latent_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+
+                # mlpDict = self.config.position_bias_mlp_dict if self.config.position_bias_mlp_dict is not None else getDefaultMLPDict()
+                self.pbMixer = MLP(in_features = self.latent_token_dim + self.apbDim, out_features = self.latent_token_dim, config = self.mlpConfig, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+                # self.pbMixer = buildMLPwDict(mlpDict, inputDim=self.latent_token_dim + self.apbDim, outputDim=self.latent_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
                 numberOfParameters = sum(p.numel() for p in self.pbMixer.parameters())
                 verbosePrint(f'\tNumber of parameters in position bias mixer MLP: {numberOfParameters}', self.verbose, self.verbosePrefix)
         else:
@@ -172,8 +179,9 @@ class TokenEncoder(torch.nn.Module):
                 self.input_encoder = nn.Linear(self.input_token_dim, self.latent_token_dim, bias=False)
             else:
                 verbosePrint(f'\tUsing MLP for input feature projection', self.verbose, self.verbosePrefix)
-                mlpDict = self.config.projection_mlp_dict if self.config.projection_mlp_dict is not None else getDefaultMLPDict()
-                self.input_encoder = buildMLPwDict(mlpDict, inputDim=self.input_token_dim, outputDim=self.latent_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+                # mlpDict = self.config.projection_mlp_dict if self.config.projection_mlp_dict is not None else getDefaultMLPDict()
+                self.input_encoder = MLP(in_features = self.input_token_dim, out_features = self.latent_token_dim, config = self.mlpConfig, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+                # self.input_encoder = buildMLPwDict(mlpDict, inputDim=self.input_token_dim, outputDim=self.latent_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
                 numberOfParameters = sum(p.numel() for p in self.input_encoder.parameters())
                 verbosePrint(f'\tNumber of parameters in input encoder MLP: {numberOfParameters}', self.verbose, self.verbosePrefix)
 
@@ -196,8 +204,9 @@ class TokenEncoder(torch.nn.Module):
                 self.ffn = nn.Linear(self.latent_out_dim, self.output_token_dim, bias=False)
             else:
                 verbosePrint(f'\tUsing MLP for FFN', self.verbose, self.verbosePrefix)
-                mlpDict = self.config.ffn_mlp_dict if self.config.ffn_mlp_dict is not None else getDefaultMLPDict()
-                self.ffn = buildMLPwDict(mlpDict, inputDim=self.latent_out_dim, outputDim=self.output_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+                self.ffn = MLP(in_features = self.latent_out_dim, out_features = self.output_token_dim, config = self.mlpConfig, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
+                # mlpDict = self.config.ffn_mlp_dict if self.config.ffn_mlp_dict is not None else getDefaultMLPDict()
+                # self.ffn = buildMLPwDict(mlpDict, inputDim=self.latent_out_dim, outputDim=self.output_token_dim, verbose=self.verbose, verbosePrefix=self.verbosePrefix + '\t')
                 numberOfParameters = sum(p.numel() for p in self.ffn.parameters())
                 verbosePrint(f'\tNumber of parameters in FFN MLP: {numberOfParameters}', self.verbose, self.verbosePrefix)
 

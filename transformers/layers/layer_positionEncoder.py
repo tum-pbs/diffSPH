@@ -5,7 +5,8 @@ from torch import Tensor
 import torch.nn as nn
 from typing import Optional
 from .basisFunctions import basisEncoderLayer, evalBasisFunction
-from .mlp import getDefaultMLPDict, buildMLPwDict
+# from .mlp import getDefaultMLPDict, buildMLPwDict
+from .layer_mlp import MLP, MLPConfig
 from .networkUtil import verbosePrint, verboseBannerPrint
 
 from typing import Optional, Union, Tuple, List
@@ -88,7 +89,7 @@ class BasisEncoderConfig:
     
     projection:         bool            = field(default=False,      metadata={"help": "Project output of basis encoding"})
     projection_linear:  bool            = field(default=True,       metadata={"help": "Use linear encoding for APB"})
-    projection_mlp:     Optional[dict]  = field(default=None,       metadata={"help": "MLP architecture for APB"})
+    # projection_mlp:     Optional[dict]  = field(default=None,       metadata={"help": "MLP architecture for APB"})
     projection_dim:     Optional[int]   = field(default=None,       metadata={"help": "Output dimension of APB if projection is used"})
     projection_bias:    bool            = field(default=False,      metadata={"help": "Use bias in projection layer"})
 
@@ -211,13 +212,17 @@ from .mapping import map_positions
 class BasisEncoder(nn.Module):
     def __init__(self,
                  config: BasisEncoderConfig = BasisEncoderConfig(),
+                 mlpConfig: Optional[MLPConfig] = None,
                  
                  verbose: bool = False,
                  verbosePrefix: str = '',
                  **kwargs
                 ):
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         config = copy.deepcopy(config)
         config = updateBasisEncoderConfig(config, **kwargs)
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
         self.config = config
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
@@ -245,12 +250,13 @@ class BasisEncoder(nn.Module):
                     gain = np.sqrt(3)
                     nn.init.uniform_(self.projector.weight,-1/np.sqrt(self.basisTerms) * gain, 1/np.sqrt(self.basisTerms) * gain)
             else:
-                if self.config.projection_mlp is None:
-                    self.config.projection_mlp = getDefaultMLPDict()
+                # if self.config.projection_mlp is None:
+                    # self.config.projection_mlp = getDefaultMLPDict()
 
-                    self.config.projection_mlp['bias'] = self.config.projection_bias
+                    # self.config.projection_mlp['bias'] = self.config.projection_bias
 
-                self.projector = buildMLPwDict(self.config.projection_mlp,inputDim=self.basisTerms,outputDim=self.outputShape, verbose=verbose, verbosePrefix=verbosePrefix+'\t')
+                # self.projector = buildMLPwDict(self.config.projection_mlp,inputDim=self.basisTerms,outputDim=self.outputShape, verbose=verbose, verbosePrefix=verbosePrefix+'\t')
+                self.projector = MLP(in_features = self.basisTerms, out_features = self.outputShape, config = self.mlpConfig, verbose=verbose, verbosePrefix=verbosePrefix+'\t')
         else:
             self.projector = nn.Identity()
             

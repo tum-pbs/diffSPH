@@ -22,7 +22,8 @@ from .networkUtil import verboseBannerPrint
 from .networkUtil import verbosePrint
 from .sparse import buildSparseTensor
 from .softmax import softmax
-from .mlp import buildMLPwDict, getDefaultMLPDict
+# from .mlp import buildMLPwDict, getDefaultMLPDict
+from .layer_mlp import MLP, MLPConfig
 from .networkUtil import checkTensorShape
 
 from typing import List, Optional
@@ -45,7 +46,7 @@ class MessagePassingConfig:
 
     encode_tokens: bool = field(default=True, metadata={"help": "Whether to encode the query and key tokens"})
     encode_tokens_linear: bool = field(default=True, metadata={"help": "Whether to use a linear layer for token encoding (if False, use MLP)"})
-    encode_tokens_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for token encoding (if encode_tokens_linear is False)"})
+    # encode_tokens_mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Dictionary defining the MLP architecture for token encoding (if encode_tokens_linear is False)"})
 
     messageMixer: Optional[TokenMixerConfig] = field(default=None, metadata={"help": "Configuration for the message token mixer (if None, no mixing is applied before message generation)"})
     messageActivation: Optional[str] = field(default=None, metadata={"help": "Activation function to use after message generation (e.g. 'relu', 'gelu', etc.)"})
@@ -71,19 +72,21 @@ class MessagePassingConfig:
 import copy
 from .networkUtil import mergeConfigWithKwargs
 
-def build_projection(linear, inputDim, outputDim, dict = None, verbose = False, verbosePrefix = ''):
+def build_projection(linear, inputDim, outputDim, dict: Optional[MLPConfig] = None, verbose = False, verbosePrefix = ''):
     if linear:
         verbosePrint(f'Building linear projection from {inputDim} to {outputDim}', verbose, verbosePrefix=verbosePrefix+'\t')
-        return nn.Linear(inputDim, outputDim, bias = False)
+        return nn.Linear(inputDim, outputDim, bias= False)
     else:
         if dict is None:
-            dict = getDefaultMLPDict()
+            dict = copy.deepcopy(MLPConfig())
+
         verbosePrint(f'Building MLP projection from {inputDim} to {outputDim} with config: {dict}', verbose, verbosePrefix=verbosePrefix+'\t')
-        return buildMLPwDict(dict, verbose=verbose, verbosePrefix=verbosePrefix+'\t', inputDim=inputDim, outputDim=outputDim)
+        return MLP(in_features = inputDim, out_features = outputDim, config = dict, verbose = verbose, verbosePrefix = verbosePrefix+'\t')
 
 class MessagePassingLayer(torch.nn.Module):
     def __init__(self, 
                 config : MessagePassingConfig,
+                mlpConfig: Optional[MLPConfig] = None,
                 verbose: bool = False,
                 verbosePrefix: str = '',
                 **kwargs
@@ -91,8 +94,12 @@ class MessagePassingLayer(torch.nn.Module):
         super(MessagePassingLayer, self).__init__()
         verboseBannerPrint('Initializing MessagePassingLayer', verbose)
 
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
+
         config = copy.deepcopy(config)
         self.config = mergeConfigWithKwargs(config, **kwargs)
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
 
@@ -118,7 +125,7 @@ class MessagePassingLayer(torch.nn.Module):
                 linear = self.config.encode_tokens_linear,
                 inputDim = self.token_input_dim,
                 outputDim = self.num_heads * self.transformer_features,
-                dict = self.config.encode_tokens_mlp_dict,
+                dict = self.mlpConfig,
                 verbose = self.verbose,
                 verbosePrefix = self.verbosePrefix+'\t'
             )
@@ -173,7 +180,7 @@ class MessagePassingLayer(torch.nn.Module):
         self.messageMixer.edge_feature_dim = edge_features
 
         verbosePrint(f'Message Mixer config: {self.messageMixer}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-        self.mixer = TokenMixer(self.messageMixer, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+        self.mixer = TokenMixer(self.messageMixer, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t', mlpConfig=self.mlpConfig)
 
         self.messageActivation = getActivationLayer(self.config.messageActivation) if self.config.messageActivation is not None else None
 

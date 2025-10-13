@@ -3,6 +3,7 @@ from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
 from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
 from layers.layer_mixing import TokenMixer, TokenMixerConfig
 from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
+from layers.layer_mlp import MLP, MLPConfig
 import torch
 import copy
 from layers.networkUtil import verbosePrint, verboseBannerPrint
@@ -16,7 +17,7 @@ from .basicMessaging import BasicMessagePassing
 
 from dataclasses import dataclass, field
 from layers.networkUtil import mergeConfigWithKwargs
-from layers.mlp import getDefaultMLPDict, buildMLPwDict
+# from layers.mlp import getDefaultMLPDict, buildMLPwDict
 from layers.activation import getActivationFromString
 from .common import CommonConfiguration
 
@@ -30,15 +31,19 @@ class BasicCConvLayer(torch.nn.Module):
                 cconv_terms: Union[int, List[int]] = 6,
                 cconv_projection: str = 'cartesian',
                 cconv_mode: str = 'outer',
+                mlpConfig: Optional[MLPConfig] = None,
 
                  token_output_dim: int = 0,
                  verbose: bool = False,
                  verbosePrefix: str = ''
     ):
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         super(BasicCConvLayer, self).__init__()
         verbosePrint('Initializing Basic CConv Layer...', verbose)
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
 
         self.token_input_dim = token_input_dim
         self.spatial_dim = spatial_dim
@@ -77,7 +82,8 @@ class BasicCConvLayer(torch.nn.Module):
 
                         normalize_positions=False,
                     )
-                )
+                ),
+                mlpConfig = self.mlpConfig,
             ),
             verbose = verbose,
             verbosePrefix = f'CConv|{verbosePrefix}'

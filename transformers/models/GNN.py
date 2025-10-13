@@ -3,13 +3,14 @@ from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
 from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
 from layers.layer_mixing import TokenMixer, TokenMixerConfig
 from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
+from layers.layer_mlp import MLP, MLPConfig
 import torch
 import copy
 from layers.networkUtil import verbosePrint, verboseBannerPrint
 from typing import Optional, Tuple, Union, List
 from torch import Tensor
 
-from layers.mlp import getDefaultMLPDict, buildMLPwDict
+# from layers.mlp import getDefaultMLPDict, buildMLPwDict
 
 from .basicAttention import BasicAttention
 from .basicEncoder import BasicEncoder
@@ -46,21 +47,27 @@ class GNNModel(torch.nn.Module):
         use_edge_encoder = True,
 
         inputEdgeEncoderTokenConfig: Optional[TokenEncoderConfig] = None,
+        mlpConfig: Optional[MLPConfig] = None,
         use_basis_encoder: bool = True,
 
         verbose: bool = False,
         verbosePrefix: str = '',
         **kwargs):
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         super(GNNModel, self).__init__()
         verbosePrint('Initializing GNN Model...', verbose)
         self.config = copy.deepcopy(config) if config is not None else CommonConfiguration()
         self.config = mergeConfigWithKwargs(self.config, **kwargs)
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
 
-        mlp_dict = self.config.mlp_dict if self.config.mlp_dict is not None else getDefaultMLPDict()
-        mlp_dict['layout'] = [64] * self.config.mlp_hidden_layers
-        mlp_dict['hidden_dim'] = self.config.mlp_latent_dim
-        mlp_dict['activation'] = self.config.mlp_activation
-        self.config.mlp_dict = mlp_dict
+        verbosePrint(f'\tGNN config: {self.config}', verbose)
+
+        # mlp_dict = self.config.mlp_dict if self.config.mlp_dict is not None else getDefaultMLPDict()
+        # mlp_dict['layout'] = [64] * self.config.mlp_hidden_layers
+        # mlp_dict['hidden_dim'] = self.config.mlp_latent_dim
+        # mlp_dict['activation'] = self.config.mlp_activation
+        # self.config.mlp_dict = mlp_dict
 
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
@@ -85,7 +92,7 @@ class GNNModel(torch.nn.Module):
             self.input_node_encoder = BasicEncoder(
                 input_dim = self.token_input_dim,
                 output_dim = self.latent_features,
-                latent_dim = mlp_dict['layout'][0],
+                # latent_dim = mlp_dict['layout'][0],
 
                 tokenEncoderConfig = TokenEncoderConfig(
                     use_ffn = False,
@@ -93,7 +100,8 @@ class GNNModel(torch.nn.Module):
                     projection_linear = True
                 ),
 
-                hidden_layers = len(mlp_dict['layout']),
+                # hidden_layers = len(mlp_dict['layout']),
+                mlpConfig = self.mlpConfig,
                 verbose = verbose
             )
             current_token_dim = self.latent_features
@@ -114,8 +122,9 @@ class GNNModel(torch.nn.Module):
                     projection = True,
                     projection_linear = True,
                     projection_dim = self.latent_edge_features,
-                    projection_mlp = mlp_dict,
+                    # projection_mlp = mlp_dict,
                 ),
+                mlpConfig = self.mlpConfig,
                 verbose = verbose,
                 verbosePrefix = 'EdgeEnc|'
             )
@@ -154,7 +163,7 @@ class GNNModel(torch.nn.Module):
                     messageMixer = TokenMixerConfig(
                         input_channels = 1,
                         mode = 'mlp',
-                        mlp_dict = mlp_dict,
+                        # mlp_dict = mlp_dict,
 
                         include_spatial = False,
                         include_edges = True,
@@ -172,6 +181,7 @@ class GNNModel(torch.nn.Module):
 
 
                 ),
+                mlpConfig = self.mlpConfig,
                     verbose = verbose,
                     verbosePrefix = f'{verbosePrefix}  L{layer+1}|'
                 )
@@ -187,8 +197,12 @@ class GNNModel(torch.nn.Module):
                 if layer == self.hidden_layers - 1 and self.config.ffn_skip_last:
                     verbosePrint(f'\t\tSkipping FFN at last layer {layer+1} due to ffn_skip_last=True.', verbose)
                     continue
+                verbosePrint(f'\t\tAdding FFN at layer {layer+1}.', verbose)
+                verbosePrint(f'\t\tFFN input/output dim: {self.latent_features}', verbose)
+                verbosePrint(f'\t\tFFN config: {self.mlpConfig}', verbose)
                 self.ffns.append(
-                    buildMLPwDict(mlp_dict, inputDim=self.latent_features, outputDim=self.latent_features)
+                    MLP(in_features = self.latent_features, out_features = self.latent_features,verbose=verbose,verbosePrefix=f'FFN|L{layer+1}|',config=self.mlpConfig)
+                    # buildMLPwDict(mlp_dict, inputDim=self.latent_features, outputDim=self.latent_features)
                 )
                 if self.config.post_ffn_norm is not None:
                     self.ffn_norms.append(torch.nn.LayerNorm(self.latent_features))
@@ -212,7 +226,8 @@ class GNNModel(torch.nn.Module):
 
                     channel_mixing = False,
                     mode = 'mlp',
-                    mlp_dict = mlp_dict,
+                    # mlp_dict = mlp_dict,
+                    mlpConfig=self.mlpConfig,
 
                     include_edges = True,
                     include_spatial = False,
@@ -232,11 +247,11 @@ class GNNModel(torch.nn.Module):
             self.outputDecoder = BasicEncoder(
                 input_dim = current_token_dim,
                 output_dim = self.token_output_dim,
-                latent_dim = mlp_dict['layout'][-1],
+                # latent_dim = mlp_dict['layout'][-1],
 
                 tokenEncoderConfig = self.config.outputDecoderTokenConfig,
-
-                hidden_layers = len(mlp_dict['layout']),
+                mlpConfig = self.mlpConfig,
+                # hidden_layers = len(mlp_dict['layout']),
                 verbose = verbose
             )
         else:

@@ -3,6 +3,7 @@ from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
 from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
 from layers.layer_mixing import TokenMixer, TokenMixerConfig
 from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
+from layers.layer_mlp import MLP, MLPConfig
 import torch
 import copy
 from layers.networkUtil import verbosePrint, verboseBannerPrint
@@ -15,7 +16,7 @@ from .basicAttention import BasicAttention
 from .basicMessaging import BasicMessagePassing
 from .basicTransformerLayer import BasicTransformerLayer
 
-from layers.mlp import getDefaultMLPDict, buildMLPwDict
+# from layers.mlp import getDefaultMLPDict, buildMLPwDict
 from dataclasses import dataclass, field
 from layers.networkUtil import mergeConfigWithKwargs
 from layers.activation import getActivationFromString
@@ -31,24 +32,28 @@ class BasicTransformer(torch.nn.Module):
         attentionConfig: Optional[AttentionLayerConfig] = None,
         messageConfig: Optional[MessagePassingConfig] = None,
         outputDecoderTokenConfig: Optional[TokenEncoderConfig] = None,
+        mlpConfig: Optional[MLPConfig] = None,
 
         verbose: bool = False,
         verbosePrefix: str = '',
         **kwargs
     ):
+        if mlpConfig is None:
+            raise ValueError('[DEBUG] mlpConfig must be provided.')
         super(BasicTransformer, self).__init__()
         verbosePrint('Initializing Basic Transformer...', verbose)
         self.config = copy.deepcopy(config) if config is not None else CommonConfiguration()
         self.config = mergeConfigWithKwargs(self.config, **kwargs)
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
 
         # print('Final configuration:')
         # print(self.config)
 
-        mlp_dict = self.config.mlp_dict if self.config.mlp_dict is not None else getDefaultMLPDict()
-        mlp_dict['layout'] = [self.config.latent_features] * self.config.mlp_hidden_layers
-        mlp_dict['hidden_dim'] = self.config.mlp_latent_dim
-        mlp_dict['activation'] = self.config.mlp_activation
-        self.config.mlp_dict = mlp_dict
+        # mlp_dict = self.config.mlp_dict if self.config.mlp_dict is not None else getDefaultMLPDict()
+        # mlp_dict['layout'] = [self.config.latent_features] * self.config.mlp_hidden_layers
+        # mlp_dict['hidden_dim'] = self.config.mlp_latent_dim
+        # mlp_dict['activation'] = self.config.mlp_activation
+        # self.config.mlp_dict = mlp_dict
 
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
@@ -71,7 +76,7 @@ class BasicTransformer(torch.nn.Module):
             self.inputEncoder = BasicEncoder(
                 input_dim = self.token_input_dim,
                 output_dim = transformer_features * attention_heads,
-                latent_dim = mlp_dict['layout'][0],
+                # latent_dim = mlp_dict['layout'][0],
 
                 tokenEncoderConfig = TokenEncoderConfig(
                     use_ffn = False,
@@ -79,7 +84,8 @@ class BasicTransformer(torch.nn.Module):
                     projection_linear = True
                 ),
 
-                hidden_layers = len(mlp_dict['layout']),
+                # hidden_layers = len(mlp_dict['layout']),
+                mlpConfig=self.mlpConfig,
                 verbose = verbose
             )
             current_token_dim = transformer_features * attention_heads
@@ -114,6 +120,7 @@ class BasicTransformer(torch.nn.Module):
 
                     attentionConfig = attentionConfig,
                     messageConfig = messageConfig,
+                    mlpConfig = self.mlpConfig,
 
                     verbose = verbose,
                     verbosePrefix = f'{verbosePrefix}  L{layer+1}|', **kwargs
@@ -131,7 +138,9 @@ class BasicTransformer(torch.nn.Module):
                     verbosePrint(f'\t\tSkipping FFN at last layer {layer+1} due to ffn_skip_last=True.', verbose)
                     continue
                 self.ffns.append(
-                    buildMLPwDict(mlp_dict, inputDim=self.latent_features, outputDim=self.latent_features)
+                    MLP(in_features=self.latent_features, out_features=self.latent_features,
+                        mlpConfig=self.mlpConfig, verbose = verbose, verbosePrefix=f'{verbosePrefix}  L{layer+1}|FFN|')
+                    # buildMLPwDict(mlp_dict, inputDim=self.latent_features, outputDim=self.latent_features)
                 )
                 if self.config.post_ffn_norm is not None:
                     self.ffn_norms.append(torch.nn.LayerNorm(self.latent_features))
@@ -151,11 +160,12 @@ class BasicTransformer(torch.nn.Module):
             self.outputDecoder = BasicEncoder(
                 input_dim = current_token_dim,
                 output_dim = self.token_output_dim,
-                latent_dim = mlp_dict['layout'][-1],
+                # latent_dim = mlp_dict['layout'][-1],
 
                 tokenEncoderConfig = outputDecoderTokenConfig,
+                mlpConfig=self.mlpConfig,
 
-                hidden_layers = len(mlp_dict['layout']),
+                # hidden_layers = len(mlp_dict['layout']),
                 verbose = verbose
             )
         else:
