@@ -3,6 +3,7 @@ from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
 from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
 from layers.layer_mixing import TokenMixer, TokenMixerConfig
 from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
+from layers.layer_mlp import MLP, MLPConfig, FeedForwardNetwork
 import torch
 import copy
 from layers.networkUtil import verbosePrint, verboseBannerPrint
@@ -56,6 +57,16 @@ class CommonConfiguration:
     basis_terms: int = field(default=6, metadata={"help": "Number of basis terms for relative position encoding."})
     basis_projection: str = field(default='cartesian', metadata={"help": "Projection type for basis encoding."})
     basis_mode: str = field(default='cat', metadata={"help": "Mode for combining basis encodings."})
+
+    # Normalization options
+    norm_type: str = field(default='layer', metadata={"help": "Type of normalization to use throughout the model."})
+    pre_norm: bool = field(default=False, metadata={"help": "Whether to apply normalization before layers."})
+    post_norm: bool = field(default=False, metadata={"help": "Whether to apply normalization after layers."})
+    conditioning_dim: Optional[int] = field(default=None, metadata={"help": "Dimensionality of conditioning vector, if any."})
+    use_conditioning: bool = field(default=False, metadata={"help": "Whether to use conditioning throughout the model."})
+
+    mlpConfig: Optional[MLPConfig] = field(default=None, metadata={"help": "Configuration for MLPs used in the model."})
+    embeddingConfig: Optional[MLPConfig] = field(default=None, metadata={"help": "Configuration for embedding MLPs used in the model."})
 
     # MLP configuration
     # mlp_dict: Optional[dict] = field(default=None, metadata={"help": "Configuration dictionary for MLPs used in the model."})

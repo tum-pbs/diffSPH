@@ -280,7 +280,8 @@ class BasisEncoder(nn.Module):
 
         verbosePrint(f'{self.verbosePrefix}Input positions shape before shapeMatch: {inputPositions.shape}', verbose=self.verbose)
         verbosePrint(f'{self.verbosePrefix}Input positions shape after shapeMatch: {normalizedPositions.shape}, batches={batches}, entries={entries}, dim={dim}', verbose=self.verbose)
-        printTensor('Input positions after shapeMatch', normalizedPositions)
+        if self.verbose:
+            printTensor('Input positions after shapeMatch', normalizedPositions)
         if normalizedPositions.shape != inputPositions.shape:
             mapped = True
         else:
@@ -304,7 +305,8 @@ class BasisEncoder(nn.Module):
             normalizedPositions = map_positions(normalizedPositions, self.config.base_projection)
             verbosePrintSpatialTensorStats(normalizedPositions, name=f'Mapped Positions ({self.config.base_projection})', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
 
-        printTensor('Input positions after optional normalization/clamping/mapping', normalizedPositions)
+        if self.verbose:
+            printTensor('Input positions after optional normalization/clamping/mapping', normalizedPositions)
 
         bTerms = []
         if self.config.base_encoding:
@@ -338,9 +340,10 @@ class BasisEncoder(nn.Module):
             combinedTerms = bTerms[2]
         else:
             raise ValueError(f'Unknown mode: {self.config.base_mode}')
-        
-        printTensor('Basis terms before scaling/projection', combinedTerms)
-        
+
+        if self.verbose:
+            printTensor('Basis terms before scaling/projection', combinedTerms)
+
         verbosePrint(f'Combined basis terms shape: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         
         if self.config.base_scaling:
@@ -349,7 +352,8 @@ class BasisEncoder(nn.Module):
         if self.activation_fn is not None:
             combinedTerms = self.activation_fn(combinedTerms)
             verbosePrint(f'Activated basis terms shape: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-            printTensor('Activated basis terms', combinedTerms)
+            if self.verbose:
+                printTensor('Activated basis terms', combinedTerms)
 
         # now combinedTerms is of shape [E, combinedBasisTerms]
         # map back to [B,N,combinedBasisTerms] or [E,combinedBasisTerms]
@@ -357,13 +361,15 @@ class BasisEncoder(nn.Module):
             verbosePrint(f'Reshaping output to include batch dimension: {batches}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             combinedTerms = combinedTerms.view(batches, -1, combinedTerms.shape[-1])
             verbosePrint(f'Output shape after reshaping: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-            printTensor('Basis terms after reshaping', combinedTerms)
+            if self.verbose:
+                printTensor('Basis terms after reshaping', combinedTerms)
         # now apply the projection if needed
         if self.config.projection:
             verbosePrint(f'Applying projection: {self.config.projection}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             combinedTerms = self.projector(combinedTerms)
             verbosePrint(f'Output shape after projection: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-            printTensor('Basis terms after projection', combinedTerms)
+            if self.verbose:
+                printTensor('Basis terms after projection', combinedTerms)
             
         verbosePrint(f'BasisEncoder output shape: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         return combinedTerms

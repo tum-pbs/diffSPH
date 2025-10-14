@@ -3,7 +3,7 @@ from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
 from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
 from layers.layer_mixing import TokenMixer, TokenMixerConfig
 from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
-from layers.layer_mlp import MLP, MLPConfig
+from layers.layer_mlp import MLP, MLPConfig, FeedForwardNetwork
 import torch
 import copy
 from layers.networkUtil import verbosePrint, verboseBannerPrint
@@ -32,19 +32,19 @@ class BasicTransformer(torch.nn.Module):
         attentionConfig: Optional[AttentionLayerConfig] = None,
         messageConfig: Optional[MessagePassingConfig] = None,
         outputDecoderTokenConfig: Optional[TokenEncoderConfig] = None,
-        mlpConfig: Optional[MLPConfig] = None,
 
         verbose: bool = False,
         verbosePrefix: str = '',
         **kwargs
     ):
-        if mlpConfig is None:
-            raise ValueError('[DEBUG] mlpConfig must be provided.')
         super(BasicTransformer, self).__init__()
         verbosePrint('Initializing Basic Transformer...', verbose)
         self.config = copy.deepcopy(config) if config is not None else CommonConfiguration()
         self.config = mergeConfigWithKwargs(self.config, **kwargs)
-        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
+        self.mlpConfig = copy.deepcopy(self.config.mlpConfig) if self.config.mlpConfig is not None else MLPConfig()
+        self.conditioningConfig = copy.deepcopy(self.config.embeddingConfig) if self.config.embeddingConfig is not None else MLPConfig()
+        self.conditioningConfig.input_dim = self.config.conditioning_dim
+
 
         # print('Final configuration:')
         # print(self.config)
@@ -121,6 +121,11 @@ class BasicTransformer(torch.nn.Module):
                     attentionConfig = attentionConfig,
                     messageConfig = messageConfig,
                     mlpConfig = self.mlpConfig,
+                    conditioningConfig = self.conditioningConfig,
+                    norm_type = self.config.norm_type,
+                    pre_norm = self.config.pre_norm,
+                    post_norm = self.config.post_norm,
+                    use_conditioning = self.config.use_conditioning,
 
                     verbose = verbose,
                     verbosePrefix = f'{verbosePrefix}  L{layer+1}|', **kwargs
@@ -138,8 +143,19 @@ class BasicTransformer(torch.nn.Module):
                     verbosePrint(f'\t\tSkipping FFN at last layer {layer+1} due to ffn_skip_last=True.', verbose)
                     continue
                 self.ffns.append(
-                    MLP(in_features=self.latent_features, out_features=self.latent_features,
-                        mlpConfig=self.mlpConfig, verbose = verbose, verbosePrefix=f'{verbosePrefix}  L{layer+1}|FFN|')
+                    FeedForwardNetwork(
+                        in_features=self.latent_features, 
+                        out_features=self.latent_features,
+
+                        mlpConfig=self.mlpConfig, 
+                        embeddingConfig=self.conditioningConfig,
+                        norm_type = self.config.norm_type,
+                        pre_norm = self.config.pre_norm,
+                        post_norm = self.config.post_norm,
+                        use_conditioning = self.config.use_conditioning,
+                        
+                        verbose = verbose, 
+                        verbosePrefix=f'{verbosePrefix}  L{layer+1}|FFN|')
                     # buildMLPwDict(mlp_dict, inputDim=self.latent_features, outputDim=self.latent_features)
                 )
                 if self.config.post_ffn_norm is not None:

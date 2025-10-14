@@ -294,7 +294,8 @@ class TokenMixer(torch.nn.Module):
 
         for i, input in enumerate(headInput):
             verbosePrint(f'Head {headIndex} input token {i} shape: {input.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t\t')
-            printTensor(f'head{headIndex}_input{i}', input)
+            if self.verbose:
+                printTensor(f'head{headIndex}_input{i}', input)
 
         if self.config.mode == 'linear' or self.config.mode == 'mlp':
             verbosePrint(f'Using {"linear" if self.config.mode == "linear" else "MLP"} mixing layer', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
@@ -352,7 +353,8 @@ class TokenMixer(torch.nn.Module):
         else:
             raise ValueError(f"TokenMixer: mode must be one of 'linear', 'mlp' or 'cconv', got {self.config.mode}")
         verbosePrint(f'Head {headIndex} mixed output shape: {mixedHead.shape}', self.verbose, verbosePrefix=self.verbosePrefix+'\t\t\t')
-        printTensor(f'head{headIndex}_mixed', mixedHead)
+        if self.verbose:
+            printTensor(f'head{headIndex}_mixed', mixedHead)
         return mixedHead
 
         

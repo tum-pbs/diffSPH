@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
 from layers.networkUtil import mergeConfigWithKwargs, verboseBannerPrint, verbosePrint
 from layers.activation import getActivationFromString
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union, List
 import math
 import torch
 import copy
 import torch.nn as nn
+import warnings
 
 
 '''
@@ -50,6 +51,7 @@ class MLPConfig:
     post_norm : bool = False
     hidden_norm: bool = False
     norm_type : str = 'layer'  # 'layer', 'batch', 'instance', 'group[num_groups]'
+    norm_affine: Optional[bool] = None
     
 
     skip_linear : bool = False
@@ -76,7 +78,7 @@ def verbosePrintTensor(verbose, verbosePrefix, name, tensor):
 
 
 class NormLayer(torch.nn.Module):
-    def __init__(self, norm_type, batch_size, seq_length, channel_dim, verbose = False, verbosePrefix = ''):
+    def __init__(self, norm_type, batch_size, seq_length, channel_dim, affine: Optional[bool] = None, verbose = False, verbosePrefix = ''):
         super(NormLayer, self).__init__()
         self.norm_type = norm_type
         self.batch_size = batch_size
@@ -85,75 +87,87 @@ class NormLayer(torch.nn.Module):
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
 
+        print(f'{self.verbosePrefix}Building Norm Layer of type {norm_type} with channel_dim={channel_dim}, batch_size={batch_size}, seq_length={seq_length}, affine={affine}')
+        self.affine = affine
+
         if norm_type == 'batch': # Normalize over B and N, for each feature independently
-            self.norm = torch.nn.BatchNorm1d(channel_dim, affine=True)
+            self.norm = torch.nn.BatchNorm1d(channel_dim, affine=True if affine is None else affine)
+            self.affine = True if affine is None else affine
         elif norm_type == 'layer': # Normalize over F, for each point independently
-            self.norm = torch.nn.LayerNorm(channel_dim, elementwise_affine=True)
+            self.norm = torch.nn.LayerNorm(channel_dim, elementwise_affine=True if affine is None else affine)
+            self.affine = True if affine is None else affine
         elif norm_type == 'instance': # Normalize over N and F, for each batch independently
-            self.norm = torch.nn.InstanceNorm1d(channel_dim, affine=False)
+            self.norm = torch.nn.InstanceNorm1d(channel_dim, affine=False if affine is None else affine)
+            self.affine = False if affine is None else affine
         elif norm_type.startswith('group'): # Normalize over groups of features, for each point independently
             num_groups = 8
             if '[' in norm_type and ']' in norm_type:
                 num_groups = int(norm_type[norm_type.index('[')+1:norm_type.index(']')])
-            self.norm = torch.nn.GroupNorm(num_groups, channel_dim, affine=True)
+            self.norm = torch.nn.GroupNorm(num_groups, channel_dim, affine=True if affine is None else affine)
+            self.affine = True if affine is None else affine
         elif norm_type == 'position': # Normalize over N, for each feature and batch independently
-            self.norm = torch.nn.LayerNorm([seq_length, channel_dim], elementwise_affine=True)
+            self.norm = torch.nn.LayerNorm([seq_length, channel_dim], elementwise_affine=True if affine is None else affine)
+            self.affine = True if affine is None else affine
         else:
             raise ValueError(f'Unknown norm_type: {norm_type}')
 
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor
+                ) -> torch.Tensor:
         verboseBannerPrint(f'{self.verbosePrefix}Norm Layer Forward Pass', self.verbose)
         verbosePrint(f'{self.verbosePrefix}Input tensor shape: {x.shape}', self.verbose)
         # x is of shape [B, N, F] or [N,F]
         # if x is of shape [N,F], add a batch dimension
         if x.dim() == 2:
-            verbosePrint(f'{self.verbosePrefix}Input tensor has no batch dimension, adding one', self.verbose)
+            # verbosePrint(f'{self.verbosePrefix}Input tensor has no batch dimension, adding one', self.verbose)
             unsqueezed = True
             x = x.unsqueeze(0)
         else:
             unsqueezed = False
 
         B, N, F = x.shape
-        verbosePrint(f'{self.verbosePrefix}Input tensor shape after unsqueeze: {x.shape}', self.verbose)
-        verbosePrint(f'{self.verbosePrefix}Batch size: {B}', self.verbose)
-        verbosePrint(f'{self.verbosePrefix}Sequence length: {N}', self.verbose)
-        verbosePrint(f'{self.verbosePrefix}Feature dimension: {F}', self.verbose)
+        # verbosePrint(f'{self.verbosePrefix}Input tensor shape after unsqueeze: {x.shape}', self.verbose)
+        # verbosePrint(f'{self.verbosePrefix}Batch size: {B}', self.verbose)
+        # verbosePrint(f'{self.verbosePrefix}Sequence length: {N}', self.verbose)
+        # verbosePrint(f'{self.verbosePrefix}Feature dimension: {F}', self.verbose)
 
         # The input is of shape [B, N, F]
         if self.norm_type == 'batch':
             # Batch Norm 1D expects input of shape [B, F, N]
             x = x.permute(0, 2, 1)
-            verbosePrint(f'{self.verbosePrefix}Permuted input tensor shape for batch norm: {x.shape}', self.verbose)
+            # verbosePrint(f'{self.verbosePrefix}Permuted input tensor shape for batch norm: {x.shape}', self.verbose)
             out = self.norm(x)
             out = out.permute(0, 2, 1)
-            verbosePrint(f'{self.verbosePrefix}Output tensor shape after batch norm: {out.shape}', self.verbose)
+            # verbosePrint(f'{self.verbosePrefix}Output tensor shape after batch norm: {out.shape}', self.verbose)
         elif self.norm_type == 'instance':
             # Instance Norm 1D expects input of shape [B, F, N]
             x = x.permute(0, 2, 1)
-            verbosePrint(f'{self.verbosePrefix}Permuted input tensor shape for instance norm: {x.shape}', self.verbose)
+            # verbosePrint(f'{self.verbosePrefix}Permuted input tensor shape for instance norm: {x.shape}', self.verbose)
             out = self.norm(x)
             out = out.permute(0, 2, 1)
-            verbosePrint(f'{self.verbosePrefix}Output tensor shape after instance norm: {out.shape}', self.verbose)
+            # verbosePrint(f'{self.verbosePrefix}Output tensor shape after instance norm: {out.shape}', self.verbose)
         elif 'group' in self.norm_type:
             # Group Norm expects input of shape [B, F, N]
             x = x.permute(0, 2, 1)
-            verbosePrint(f'{self.verbosePrefix}Permuted input tensor shape for group norm: {x.shape}', self.verbose)
+            # verbosePrint(f'{self.verbosePrefix}Permuted input tensor shape for group norm: {x.shape}', self.verbose)
             out = self.norm(x)
             out = out.permute(0, 2, 1)
-            verbosePrint(f'{self.verbosePrefix}Output tensor shape after group norm: {out.shape}', self.verbose)
+            # verbosePrint(f'{self.verbosePrefix}Output tensor shape after group norm: {out.shape}', self.verbose)
         else:
             # Layer Norm, Group Norm, Position Norm expect input of shape [B, N, F]
             out = self.norm(x)
-            verbosePrint(f'{self.verbosePrefix}Output tensor shape after {self.norm_type} norm: {out.shape}', self.verbose) 
+            # verbosePrint(f'{self.verbosePrefix}Output tensor shape after {self.norm_type} norm: {out.shape}', self.verbose) 
+        verbosePrint(f'{self.verbosePrefix}Norm Layer output tensor shape: {out.shape}', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Mean and std before norm: mean {x.mean().item()}, std {x.std().item()}', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Mean and std after norm: mean {out.mean().item()}, std {out.std().item()}', self.verbose)
 
         return out
 
 
 
 class MLP(torch.nn.Module):
-    def _buildNormLayer(self, channel_dim: int):
-        return NormLayer(self.config.norm_type, self.config.batch_size, self.config.seq_length, channel_dim, self.verbose, self.verbosePrefix)
+    def _buildNormLayer(self, channel_dim: int, prefix: str = 'NormLayer'):
+        return NormLayer(self.config.norm_type, self.config.batch_size, self.config.seq_length, channel_dim, verbose = self.verbose, verbosePrefix = f'{self.verbosePrefix} [{prefix}] ')
         
     def _buildLinearLayer(self, in_dim: int, out_dim: int):
         linear = torch.nn.Linear(in_dim, out_dim, bias=self.config.bias)
@@ -178,14 +192,14 @@ class MLP(torch.nn.Module):
         verbosePrint(f'{self.verbosePrefix}Using activation: {self.activationString}', self.verbose)
 
         if self.config.pre_norm:
-            self.preNormLayer = self._buildNormLayer(self.config.input_dim)
+            self.preNormLayer = self._buildNormLayer(self.config.input_dim, prefix ='PreNorm')
             verbosePrint(f'{self.verbosePrefix}Using pre-norm: {self.config.norm_type}', self.verbose)
         else:
             self.preNormLayer = nn.Identity()
             verbosePrint(f'{self.verbosePrefix}No pre-norm', self.verbose)
 
         if self.config.post_norm:
-            self.postNormLayer = self._buildNormLayer(self.config.output_dim)
+            self.postNormLayer = self._buildNormLayer(self.config.output_dim, prefix ='PostNorm')
             verbosePrint(f'{self.verbosePrefix}Using post-norm: {self.config.norm_type}', self.verbose)
         else:
             self.postNormLayer = nn.Identity()
@@ -207,7 +221,7 @@ class MLP(torch.nn.Module):
             layers.append(linear)
             if self.config.hidden_norm:
                 verbosePrint(f'{self.verbosePrefix}\tUsing hidden-norm: {self.config.norm_type}', self.verbose)
-                normLayer = self._buildNormLayer(out_dim)
+                normLayer = self._buildNormLayer(out_dim, prefix =f'HiddenNorm_Layer{i+1}')
                 layers.append(normLayer)
             verbosePrint(f'{self.verbosePrefix}\tUsing activation: {self.activationString}', self.verbose)
             layers.append(self.activation)
@@ -235,6 +249,7 @@ class MLP(torch.nn.Module):
         verbosePrint(f'{verbosePrefix}MLP init config: {config}', verbose)
         verbosePrint(f'{verbosePrefix}MLP init in_features: {in_features}, out_features: {out_features}', verbose)
         self.verbose = verbose
+        self.verbosePrintTensor = False
         self.verbosePrefix = verbosePrefix
 
         if config is None:
@@ -276,7 +291,11 @@ class MLP(torch.nn.Module):
         return string
 
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor,
+            gamma_scale: Optional[torch.Tensor] = None,
+            beta_shift: Optional[torch.Tensor] = None,
+            alpha_scale: Optional[torch.Tensor] = None,
+        ) -> torch.Tensor:
         verboseBannerPrint(f'{self.verbosePrefix}MLP Forward Pass', self.verbose)
         verbosePrint(f'{self.verbosePrefix}Input tensor shape: {x.shape}', self.verbose)
         # x is of shape [B, N, F] or [N,F]
@@ -289,10 +308,52 @@ class MLP(torch.nn.Module):
             unsqueezed = False
 
         B, N, F = x.shape
+        O = self.config.output_dim
         verbosePrint(f'{self.verbosePrefix}Input tensor shape after unsqueeze: {x.shape}', self.verbose)
         verbosePrint(f'{self.verbosePrefix}Batch size: {B}', self.verbose)
         verbosePrint(f'{self.verbosePrefix}Sequence length: {N}', self.verbose)
         verbosePrint(f'{self.verbosePrefix}Feature dimension: {F}', self.verbose)
+
+        # Process the optional scaling and shifting parameters
+        if gamma_scale is not None:
+            if gamma_scale.dim() == 1 and gamma_scale.shape[0] == F:
+                gamma_scale = gamma_scale.view(1, 1, F)
+            elif gamma_scale.dim() == 2 and gamma_scale.shape[0] == B and gamma_scale.shape[1] == F:
+                gamma_scale = gamma_scale.view(B, 1, F)
+            elif gamma_scale.dim() == 2 and gamma_scale.shape[0] == N and gamma_scale.shape[1] == F:
+                gamma_scale = gamma_scale.view(1, N, F)
+            elif gamma_scale.dim() == 3 and gamma_scale.shape[0] == B and gamma_scale.shape[1] == N and gamma_scale.shape[2] == F:
+                pass
+            else:
+                raise ValueError(f'Invalid shape for gamma_scale: {gamma_scale.shape}')
+            # verbosePrintTensor(self.verbose, self.verbosePrefix, 'gamma_scale', gamma_scale)
+            verbosePrint(f'{self.verbosePrefix}gamma_scale shape after processing: {gamma_scale.shape}', self.verbose)
+        if beta_shift is not None:
+            if beta_shift.dim() == 1 and beta_shift.shape[0] == F:
+                beta_shift = beta_shift.view(1, 1, F)
+            elif beta_shift.dim() == 2 and beta_shift.shape[0] == B and beta_shift.shape[1] == F:
+                beta_shift = beta_shift.view(B, 1, F)
+            elif beta_shift.dim() == 2 and beta_shift.shape[0] == N and beta_shift.shape[1] == F:
+                beta_shift = beta_shift.view(1, N, F)
+            elif beta_shift.dim() == 3 and beta_shift.shape[0] == B and beta_shift.shape[1] == N and beta_shift.shape[2] == F:
+                pass
+            else:
+                raise ValueError(f'Invalid shape for beta_shift: {beta_shift.shape}')
+            # verbosePrintTensor(self.verbose, self.verbosePrefix, 'beta_shift', beta_shift)
+            verbosePrint(f'{self.verbosePrefix}beta_shift shape after processing: {beta_shift.shape}', self.verbose)
+        if alpha_scale is not None:
+            if alpha_scale.dim() == 1 and alpha_scale.shape[0] == O:
+                alpha_scale = alpha_scale.view(1, 1, O)
+            elif alpha_scale.dim() == 2 and alpha_scale.shape[0] == B and alpha_scale.shape[1] == O:
+                alpha_scale = alpha_scale.view(B, 1, O)
+            elif alpha_scale.dim() == 2 and alpha_scale.shape[0] == N and alpha_scale.shape[1] == O:
+                alpha_scale = alpha_scale.view(1, N, O)
+            elif alpha_scale.dim() == 3 and alpha_scale.shape[0] == B and alpha_scale.shape[1] == N and alpha_scale.shape[2] == O:
+                pass
+            else:
+                raise ValueError(f'Invalid shape for alpha_scale: {alpha_scale.shape}')
+            # verbosePrintTensor(self.verbose, self.verbosePrefix, 'alpha_scale', alpha_scale)
+            verbosePrint(f'{self.verbosePrefix}alpha_scale shape after processing: {alpha_scale.shape}', self.verbose)
 
         if self.config.batch_size != -1 and B != self.config.batch_size:
             raise ValueError(f'Batch size mismatch: expected {self.config.batch_size}, got {B}')
@@ -301,26 +362,40 @@ class MLP(torch.nn.Module):
         if self.config.input_dim != -1 and F != self.config.input_dim:
             raise ValueError(f'Input feature dimension mismatch: expected {self.config.input_dim}, got {F}')
         
-        verbosePrintTensor(self.verbose, self.verbosePrefix, 'input', x)
+        verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'input', x)
         if self.config.pre_norm:
             verbosePrint(f'{self.verbosePrefix}Passing through pre-norm layer', self.verbose)
         out = self.preNormLayer(x)
         if self.config.pre_norm:
-            verbosePrintTensor(self.verbose, self.verbosePrefix, 'after pre-norm', out)
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after pre-norm', out)
+
+        if gamma_scale is not None:
+            verbosePrint(f'{self.verbosePrefix}Applying gamma scaling', self.verbose)
+            out = out * gamma_scale
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after gamma scaling', out)
+        if beta_shift is not None:
+            verbosePrint(f'{self.verbosePrefix}Applying beta shifting', self.verbose)
+            out = out + beta_shift
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after beta shifting', out)
         if not self.config.skip_linear:
             verbosePrint(f'{self.verbosePrefix}Passing through hidden layers', self.verbose)
         out = self.layers(out)
         if not self.config.skip_linear:
-            verbosePrintTensor(self.verbose, self.verbosePrefix, 'after hidden layers', out)
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after hidden layers', out)
         verbosePrint(f'{self.verbosePrefix}Passing through final linear layer', self.verbose)
         out = self.finalLinear(out)
-        verbosePrintTensor(self.verbose, self.verbosePrefix, 'after final linear', out)
+        verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after final linear', out)
         if self.config.post_norm:
             verbosePrint(f'{self.verbosePrefix}Passing through post-norm layer', self.verbose)
         out = self.postNormLayer(out)
         if self.config.post_norm:
-            verbosePrintTensor(self.verbose, self.verbosePrefix, 'after post-norm', out)
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after post-norm', out)
             verbosePrint(f'{self.verbosePrefix}Output tensor shape: {out.shape}', self.verbose)
+
+        if alpha_scale is not None:
+            verbosePrint(f'{self.verbosePrefix}Applying alpha scaling', self.verbose)
+            out = out * alpha_scale
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after alpha scaling', out)
 
         if self.config.residual:
             if self.config.input_dim != self.config.output_dim:
@@ -331,4 +406,213 @@ class MLP(torch.nn.Module):
         if unsqueezed:
             verbosePrint(f'{self.verbosePrefix}Removing batch dimension', self.verbose)
             out = out.squeeze(0)
+        return out
+    
+
+class FeedForwardNetwork(nn.Module):
+    def __init__(self,
+                 in_features : Optional[int] = None,
+                 out_features : Optional[int] = None,
+
+                 config: Optional[MLPConfig] = None,
+
+                embeddingConfig: Optional[MLPConfig] = None,
+                norm_type = 'layer',
+                pre_norm = True,
+                post_norm = False,
+                use_conditioning = False,
+
+                verbose: bool = False,
+                verbosePrefix: str = '',
+                   **kwargs):
+        super(FeedForwardNetwork, self).__init__()
+        if config is None:
+            config = MLPConfig()
+        verboseBannerPrint(f'{verbosePrefix}Initializing FeedForwardNetwork', verbose)
+        
+        self.config = copy.deepcopy(config)
+        self.config = mergeConfigWithKwargs(self.config, **kwargs)
+        self.embeddingConfig = copy.deepcopy(embeddingConfig) if embeddingConfig is not None else MLPConfig()
+
+        self.norm_type = norm_type
+        self.pre_norm = pre_norm
+        self.post_norm = post_norm
+        self.use_conditioning = use_conditioning
+
+        self.verbose = verbose
+        self.verbosePrintTensor = False
+        self.verbosePrefix = verbosePrefix
+
+
+        if in_features is not None:
+            self.config.input_dim = in_features
+        if out_features is not None:
+            self.config.output_dim = out_features
+        if self.config.output_dim == -1 and self.config.input_dim == -1:
+            raise ValueError('Either in_features or out_features must be specified')
+        if self.config.input_dim == -1:
+            raise ValueError('in_features must be specified')
+        if self.config.output_dim == -1:
+            self.config.output_dim = self.config.input_dim
+
+        verbosePrint(f'{verbosePrefix}MLP Configuration: {self.config}', verbose)
+        verbosePrint(f'{verbosePrefix}MLP Input Dim: {self.config.input_dim}', verbose)
+        verbosePrint(f'{verbosePrefix}MLP Output Dim: {self.config.output_dim}', verbose)
+
+        self.mlp = MLP(in_features=self.config.input_dim, out_features=self.config.output_dim, config=self.config, verbose=verbose, verbosePrefix=verbosePrefix)
+        self.embedding = None
+
+
+        if self.embeddingConfig.input_dim > 0:
+            self.embedding = MLP(in_features=self.embeddingConfig.input_dim, out_features=self.config.input_dim * 2 + self.config.output_dim, config=self.embeddingConfig, verbose=verbose, verbosePrefix=verbosePrefix+'[Embedding] ')
+            verbosePrint(f'{verbosePrefix}Using embedding MLP with config: {self.embeddingConfig}', verbose)
+
+            if not self.pre_norm:
+                warnings.warn('Using embedding MLP without pre-norm in the main MLP. This may lead to instability.', UserWarning)
+
+        params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        verbosePrint(f'{verbosePrefix}FeedForwardNetwork Number of parameters: {params}', verbose)
+
+        if self.pre_norm:
+            self.pre_norm_layer = NormLayer(self.norm_type, self.config.batch_size, self.config.seq_length, self.config.input_dim, verbose=verbose, verbosePrefix=verbosePrefix+'[PreNorm] ')
+            verbosePrint(f'{verbosePrefix}Using pre-norm layer with type: {self.norm_type}', verbose)
+        else:
+            self.pre_norm_layer = nn.Identity()
+            verbosePrint(f'{verbosePrefix}No pre-norm layer', verbose)
+        if self.post_norm:
+            self.post_norm_layer = NormLayer(self.norm_type, self.config.batch_size, self.config.seq_length, self.config.output_dim, verbose=verbose, verbosePrefix=verbosePrefix+'[PostNorm] ')
+            verbosePrint(f'{verbosePrefix}Using post-norm layer with type: {self.norm_type}', verbose)
+        else:
+            self.post_norm_layer = nn.Identity()
+            verbosePrint(f'{verbosePrefix}No post-norm layer', verbose)
+
+
+        verboseBannerPrint(f'{verbosePrefix}FeedForwardNetwork Initialization Complete', verbose)
+
+    def forward(self, x: torch.Tensor, 
+                embedding_input: Optional[Union[List[torch.Tensor], torch.Tensor]] = None
+        ) -> torch.Tensor:
+        verboseBannerPrint(f'{self.verbosePrefix}FeedForwardNetwork Forward Pass', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Input tensor shape: {x.shape}', self.verbose)
+        # x is of shape [B, N, F] or [N,F]
+        # if x is of shape [N,F], add a batch dimension
+        if x.dim() == 2:
+            verbosePrint(f'{self.verbosePrefix}Input tensor has no batch dimension, adding one', self.verbose)
+            unsqueezed = True
+            x = x.unsqueeze(0)
+        else:
+            unsqueezed = False
+
+        B, N, F = x.shape
+        O = self.config.output_dim
+        verbosePrint(f'{self.verbosePrefix}Input tensor shape after unsqueeze: {x.shape}', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Batch size: {B}', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Sequence length: {N}', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Feature dimension: {F}', self.verbose)
+
+        if self.config.input_dim != -1 and F != self.config.input_dim:
+            raise ValueError(f'Input feature dimension mismatch: expected {self.config.input_dim}, got {F}')
+        
+        gamma_scale = None
+        beta_shift = None
+        alpha_scale = None
+        if self.embedding is not None:
+            verboseBannerPrint(f'{self.verbosePrefix}Processing embedding input', self.verbose)
+            if embedding_input is None:
+                raise ValueError('embedding_input must be provided when using embedding MLP')
+            verbosePrint(f'{self.verbosePrefix}Passing through embedding MLP', self.verbose)
+            
+            if isinstance(embedding_input, list):
+                embedding_input = torch.cat(embedding_input, dim=-1)
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'embedding input', embedding_input)
+
+            embedding_out = self.embedding(embedding_input)
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'embedding output', embedding_out)
+            # embedding_out is of shape [B, F*2 + O]
+            
+            verbosePrint(f'{self.verbosePrefix}Embedding output shape after processing: {embedding_out.shape}', self.verbose)
+            gamma_scale = embedding_out[:, :F]
+            beta_shift = embedding_out[:, F:F*2]
+            alpha_scale = embedding_out[:, F*2:]
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'gamma_scale', gamma_scale)
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'beta_shift', beta_shift)
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'alpha_scale', alpha_scale)
+
+
+             # Process the optional scaling and shifting parameters
+            if gamma_scale is not None:
+                if gamma_scale.dim() == 1 and gamma_scale.shape[0] == F:
+                    gamma_scale = gamma_scale.view(1, 1, F)
+                elif gamma_scale.dim() == 2 and gamma_scale.shape[0] == B and gamma_scale.shape[1] == F:
+                    gamma_scale = gamma_scale.view(B, 1, F)
+                elif gamma_scale.dim() == 2 and gamma_scale.shape[0] == N and gamma_scale.shape[1] == F:
+                    gamma_scale = gamma_scale.view(1, N, F)
+                elif gamma_scale.dim() == 3 and gamma_scale.shape[0] == B and gamma_scale.shape[1] == N and gamma_scale.shape[2] == F:
+                    pass
+                else:
+                    raise ValueError(f'Invalid shape for gamma_scale: {gamma_scale.shape}')
+                # verbosePrintTensor(self.verbose, self.verbosePrefix, 'gamma_scale', gamma_scale)
+                verbosePrint(f'{self.verbosePrefix}gamma_scale shape after processing: {gamma_scale.shape}', self.verbose)
+            if beta_shift is not None:
+                if beta_shift.dim() == 1 and beta_shift.shape[0] == F:
+                    beta_shift = beta_shift.view(1, 1, F)
+                elif beta_shift.dim() == 2 and beta_shift.shape[0] == B and beta_shift.shape[1] == F:
+                    beta_shift = beta_shift.view(B, 1, F)
+                elif beta_shift.dim() == 2 and beta_shift.shape[0] == N and beta_shift.shape[1] == F:
+                    beta_shift = beta_shift.view(1, N, F)
+                elif beta_shift.dim() == 3 and beta_shift.shape[0] == B and beta_shift.shape[1] == N and beta_shift.shape[2] == F:
+                    pass
+                else:
+                    raise ValueError(f'Invalid shape for beta_shift: {beta_shift.shape}')
+                # verbosePrintTensor(self.verbose, self.verbosePrefix, 'beta_shift', beta_shift)
+                verbosePrint(f'{self.verbosePrefix}beta_shift shape after processing: {beta_shift.shape}', self.verbose)
+            if alpha_scale is not None:
+                if alpha_scale.dim() == 1 and alpha_scale.shape[0] == O:
+                    alpha_scale = alpha_scale.view(1, 1, O)
+                elif alpha_scale.dim() == 2 and alpha_scale.shape[0] == B and alpha_scale.shape[1] == O:
+                    alpha_scale = alpha_scale.view(B, 1, O)
+                elif alpha_scale.dim() == 2 and alpha_scale.shape[0] == N and alpha_scale.shape[1] == O:
+                    alpha_scale = alpha_scale.view(1, N, O)
+                elif alpha_scale.dim() == 3 and alpha_scale.shape[0] == B and alpha_scale.shape[1] == N and alpha_scale.shape[2] == O:
+                    pass
+                else:
+                    raise ValueError(f'Invalid shape for alpha_scale: {alpha_scale.shape}')
+                # verbosePrintTensor(self.verbose, self.verbosePrefix, 'alpha_scale', alpha_scale)
+                verbosePrint(f'{self.verbosePrefix}alpha_scale shape after processing: {alpha_scale.shape}', self.verbose)
+
+        else:
+            if embedding_input is not None:
+                verbosePrint(f'{self.verbosePrefix}Ignoring embedding_input since no embedding MLP is used', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Passing through pre-norm layer', self.verbose)
+        x = self.pre_norm_layer(x)
+        verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after pre-norm', x)
+
+        if self.use_conditioning:
+            verboseBannerPrint(f'{self.verbosePrefix}Applying conditioning', self.verbose)
+        if gamma_scale is not None:
+            verbosePrint(f'{self.verbosePrefix}Applying gamma scaling', self.verbose)
+            x = x * gamma_scale
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after gamma scaling', x)
+        if beta_shift is not None:
+            verbosePrint(f'{self.verbosePrefix}Applying beta shifting', self.verbose)
+            x = x + beta_shift
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after beta shifting', x)
+
+        # Main MLP
+        verbosePrint(f'{self.verbosePrefix}Passing through main MLP', self.verbose)
+        out = self.mlp(x)
+
+        verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after main MLP', out)
+        verbosePrint(f'{self.verbosePrefix}Passing through post-norm layer', self.verbose)
+        out = self.post_norm_layer(out)
+        verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after post-norm', out)
+        if alpha_scale is not None:
+            verbosePrint(f'{self.verbosePrefix}Applying alpha scaling', self.verbose)
+            out = out * alpha_scale
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after alpha scaling', out)
+
+        if unsqueezed:
+            verbosePrint(f'{self.verbosePrefix}Removing batch dimension', self.verbose)
+            out = out.squeeze(0)
+        verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'output', out)
         return out
