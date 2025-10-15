@@ -4,55 +4,54 @@ import copy
 from mlUtil.networkUtil import verbosePrint, verboseBannerPrint
 from layers.mlp import MLP, MLPConfig
 from typing import Optional
+from blocks.common import CommonConfiguration
+from mlUtil.networkUtil import mergeConfigWithKwargs
 
 
 class BasicEncoder(torch.nn.Module):
     def __init__(self, 
-                 input_dim: int,
-                 output_dim: int,
-
-                 latent_dim: int = 32,       
-                 hidden_layers: int = 2,  
+                 token_input_dim: int,
+                 token_output_dim: int,
                  
-                 tokenEncoderConfig: Optional[TokenEncoderConfig] = None,
                  mlpConfig: Optional[MLPConfig] = None,
-                 
+                 tokenEncoderConfig: Optional[TokenEncoderConfig] = None,
+                 config: Optional[CommonConfiguration] = None,
+
                  verbose: bool = False,
-                 verbosePrefix: str = ''
+                 verbosePrefix: str = '',
+                 **kwargs
     ):
         super(BasicEncoder, self).__init__()
-        if mlpConfig is None:
-            raise ValueError('[DEBUG] mlpConfig must be provided.')
+        
         verbosePrint(f'{verbosePrefix}Initializing Basic Encoder...', verbose)
-        self.config = copy.deepcopy(tokenEncoderConfig) if tokenEncoderConfig is not None else TokenEncoderConfig()
-        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
+        
+        self.config = copy.deepcopy(config) if config is not None else CommonConfiguration()
+        self.config = mergeConfigWithKwargs(self.config, **kwargs)
+        self.tokenConfig = copy.deepcopy(tokenEncoderConfig) if tokenEncoderConfig is not None else TokenEncoderConfig()
+        self.tokenConfig = mergeConfigWithKwargs(self.tokenConfig, **kwargs)
+
+        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else (self.config.mlpConfig if self.config.mlpConfig is not None else MLPConfig())
+
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix
 
-        self.config.token_input_dim = input_dim
-        self.config.token_output_dim = output_dim
-        self.config.token_latent_dim = output_dim
+        self.tokenConfig.token_input_dim = token_input_dim
+        self.tokenConfig.token_output_dim = token_output_dim
+        self.tokenConfig.token_latent_dim = token_output_dim
 
         if tokenEncoderConfig is None:
             verbosePrint(f'{verbosePrefix}\tUsing default Token Encoder config.', verbose)
-            self.config.position_bias = None
-            self.config.use_ffn = False
+            self.tokenConfig.position_bias = None
+            self.tokenConfig.use_ffn = False
 
-            self.config.projection = True
-            self.config.projection_linear = False
-            # self.config.projection_mlp_dict = {
-            #     'num_layers': hidden_layers,
-            #     'hidden_dim': latent_dim,
-            #     'layout': [latent_dim] * hidden_layers,
-            #     'activation': 'silu',
-            #     'norm': False,
-            #     'bias': False,
-            # }
-        self.encoder = TokenEncoder(self.config.token_input_dim, 
-                                    self.config, verbose = verbose, verbosePrefix = verbosePrefix + 'TokenEncoder|',
+            self.tokenConfig.projection = True
+            self.tokenConfig.projection_linear = False
+
+        self.encoder = TokenEncoder(self.tokenConfig.token_input_dim,
+                                    self.tokenConfig, verbose=verbose, verbosePrefix=verbosePrefix + 'TokenEncoder|',
                                     mlpConfig=self.mlpConfig)
 
-        verbosePrint(f'{verbosePrefix}\tToken Encoder config: {self.config}', verbose)
+        verbosePrint(f'{verbosePrefix}\tToken Encoder config: {self.tokenConfig}', verbose)
         numberOfParameters = sum(p.numel() for p in self.encoder.parameters())
         verbosePrint(f'{verbosePrefix}\tNumber of parameters in Token Encoder: {numberOfParameters}', verbose)
         verboseBannerPrint(f'{verbosePrefix}Done initializing Basic Encoder.', verbose)

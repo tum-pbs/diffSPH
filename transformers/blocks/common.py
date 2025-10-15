@@ -36,9 +36,9 @@ class CommonConfiguration:
 
     # Node based feed forward options
     node_ffn: bool = field(default=True, metadata={"help": "Whether to use a feed-forward network after each message passing layer."})
-    ffn_skip_connection: bool = field(default=False, metadata={"help": "Whether to use skip connections for the feed-forward network."})
-    ffn_skip_projection: bool = field(default=False, metadata={"help": "Whether to use skip connections for the feed-forward network projection."})
-    post_ffn_norm: Optional[str] = field(default=None, metadata={"help": "Normalization to apply after feed-forward network."})
+    ffn_skip_connection: bool = field(default=True, metadata={"help": "Whether to use skip connections for the feed-forward network."})
+    ffn_skip_projection: bool = field(default=True, metadata={"help": "Whether to use skip connections for the feed-forward network projection if dimensions dont match."})
+    # post_ffn_norm: Optional[str] = field(default=None, metadata={"help": "Normalization to apply after feed-forward network."})
     ffn_skip_last: bool = field(default=False, metadata={"help": "Whether to run an FFN after the last message passing layer, duplicates with the output decoder!."})
 
     # Message passing options
@@ -59,6 +59,7 @@ class CommonConfiguration:
     post_norm: bool = field(default=False, metadata={"help": "Whether to apply normalization after layers."})
     conditioning_dim: Optional[int] = field(default=None, metadata={"help": "Dimensionality of conditioning vector, if any."})
     use_conditioning: bool = field(default=False, metadata={"help": "Whether to use conditioning throughout the model."})
+    adaLn_zero_init: bool = field(default=True, metadata={"help": "Whether to initialize AdaLN conditioning to zero."})
 
     mlpConfig: Optional[MLPConfig] = field(default=None, metadata={"help": "Configuration for MLPs used in the model."})
     embeddingConfig: Optional[MLPConfig] = field(default=None, metadata={"help": "Configuration for embedding MLPs used in the model."})

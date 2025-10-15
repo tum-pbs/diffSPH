@@ -75,7 +75,7 @@ class TokenEncoderConfig:
     token_input_dim:        int = field(default =0, metadata={"help": "Dimensionality of the input feature vector per token"})
     token_output_dim:       Optional[int] = field(default = None, metadata={"help": "Dimensionality of the output feature vector per token"})
     token_latent_dim:       Optional[int] = field(default = None, metadata={"help": "Dimensionality of the latent space feature vector per token. If None, set to token_output_dim"})
-    skip_connection:        bool = field(default=True, metadata={"help": "If True, use skip connection from input to output"})
+    skip_connection:        bool = field(default=False, metadata={"help": "If True, use skip connection from input to output"})
 
     projection:             bool = field(default=True, metadata={"help": "If True, project input features to output dimension using a linear layer or MLP"})
     projection_linear:      bool = field(default=True, metadata={"help": "If True, use a linear layer for input feature projection, if False use an MLP"})
@@ -102,7 +102,7 @@ from mlUtil.networkUtil import shapeMatch, verbosePrintSpatialTensorStats, merge
 class TokenEncoder(torch.nn.Module):
     def __init__(self, 
                  token_input_dim:         int = field(metadata={"help": "Dimensionality of the input feature vector per token"}),
-                 config: Optional[TokenEncoderConfig] = None,
+                 encoderConfig: Optional[TokenEncoderConfig] = None,
                  mlpConfig: Optional[MLPConfig] = None,
                  verbose: bool = False,
                  verbosePrefix: str = '',
@@ -113,12 +113,12 @@ class TokenEncoder(torch.nn.Module):
         super(TokenEncoder, self).__init__()
         verboseBannerPrint(f'{verbosePrefix}Initializing Encode Layer...', verbose)
 
-        if config is None:
-            config = TokenEncoderConfig(token_input_dim=token_input_dim)
+        if encoderConfig is None:
+            encoderConfig = TokenEncoderConfig(token_input_dim=token_input_dim)
         else:
-            config = copy.deepcopy(config)
-            config.token_input_dim = token_input_dim
-        self.config = mergeConfigWithKwargs(config, **kwargs)
+            encoderConfig = copy.deepcopy(encoderConfig)
+            encoderConfig.token_input_dim = token_input_dim
+        self.config = mergeConfigWithKwargs(encoderConfig, **kwargs)
         self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
         self.verbose = verbose
         self.verbosePrefix = verbosePrefix

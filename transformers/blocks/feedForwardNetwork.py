@@ -59,6 +59,21 @@ class FeedForwardNetwork(nn.Module):
             self.embedding = MLP(in_features=self.embeddingConfig.input_dim, out_features=self.mlpConfig.input_dim * 2 + self.mlpConfig.output_dim, config=self.embeddingConfig, verbose=verbose, verbosePrefix=verbosePrefix+'[Embedding] ')
             verbosePrint(f'{verbosePrefix}Using embedding MLP with config: {self.embeddingConfig}', verbose)
 
+            if self.config.adaLn_zero_init:
+                verbosePrint(f'{verbosePrefix}Initializing embedding MLP last layer to zero for AdaLN', verbose)
+                # the final layer produces gamma, beta, alpha scaling factors stacked
+                # gamma and beta are of size input_dim, alpha is of size output_dim
+                # So the final layer has output size input_dim * 2 + output_dim
+                # we want to initialize this layer such that only alpha is zero (see here https://ar5iv.labs.arxiv.org/html/2212.09748 for the reference)
+                # that means we can only partially zero out the weights
+                if self.embedding.finalLinear is None:
+                    raise ValueError('Embedding MLP final layer is None, cannot initialize to zero')
+                nn.init.zeros_(self.embedding.finalLinear.weight[self.mlpConfig.input_dim * 2:, :])
+                if self.embedding.finalLinear.bias is not None:
+                    nn.init.zeros_(self.embedding.finalLinear.bias[self.mlpConfig.input_dim * 2:])
+                verbosePrint(f'{verbosePrefix}Initialized embedding MLP last layer to zero for AdaLN', verbose)
+                # Note: This initialization is crucial for stable training when using AdaLN conditioning.
+
             if not self.pre_norm:
                 warnings.warn('Using embedding MLP without pre-norm in the main MLP. This may lead to instability.', UserWarning)
         elif self.use_conditioning:
@@ -82,6 +97,19 @@ class FeedForwardNetwork(nn.Module):
         else:
             self.post_norm_layer = nn.Identity()
             verbosePrint(f'{verbosePrefix}No post-norm layer', verbose)
+
+        if self.config.ffn_skip_connection:
+            verbosePrint(f'{verbosePrefix}Using skip connection in FeedForwardNetwork', verbose)
+            if self.mlpConfig.input_dim != self.mlpConfig.output_dim:
+                if self.config.ffn_skip_projection:
+                    self.skip_connection = nn.Linear(self.mlpConfig.input_dim, self.mlpConfig.output_dim, bias = False)
+                    verbosePrint(f'{verbosePrefix}Using skip connection with projection from {self.mlpConfig.input_dim} to {self.mlpConfig.output_dim}', verbose)
+                else:
+                    raise ValueError('ffn_skip_connection is True but input and output dimensions do not match and ffn_skip_projection is False')
+            else:
+                self.skip_connection = nn.Identity()
+                verbosePrint(f'{verbosePrefix}Using skip connection without projection', verbose)
+
 
 
         verboseBannerPrint(f'{verbosePrefix}FeedForwardNetwork Initialization Complete', verbose)
@@ -148,7 +176,7 @@ class FeedForwardNetwork(nn.Module):
                     pass
                 else:
                     raise ValueError(f'Invalid shape for gamma_scale: {gamma_scale.shape}')
-                # verbosePrintTensor(self.verbose, self.verbosePrefix, 'gamma_scale', gamma_scale)
+                verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'gamma_scale', gamma_scale)
                 verbosePrint(f'{self.verbosePrefix}gamma_scale shape after processing: {gamma_scale.shape}', self.verbose)
             if beta_shift is not None:
                 if beta_shift.dim() == 1 and beta_shift.shape[0] == F:
@@ -161,7 +189,7 @@ class FeedForwardNetwork(nn.Module):
                     pass
                 else:
                     raise ValueError(f'Invalid shape for beta_shift: {beta_shift.shape}')
-                # verbosePrintTensor(self.verbose, self.verbosePrefix, 'beta_shift', beta_shift)
+                verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'beta_shift', beta_shift)
                 verbosePrint(f'{self.verbosePrefix}beta_shift shape after processing: {beta_shift.shape}', self.verbose)
             if alpha_scale is not None:
                 if alpha_scale.dim() == 1 and alpha_scale.shape[0] == O:
@@ -174,30 +202,30 @@ class FeedForwardNetwork(nn.Module):
                     pass
                 else:
                     raise ValueError(f'Invalid shape for alpha_scale: {alpha_scale.shape}')
-                # verbosePrintTensor(self.verbose, self.verbosePrefix, 'alpha_scale', alpha_scale)
+                verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'alpha_scale', alpha_scale)
                 verbosePrint(f'{self.verbosePrefix}alpha_scale shape after processing: {alpha_scale.shape}', self.verbose)
 
         else:
             if embedding_input is not None:
                 verbosePrint(f'{self.verbosePrefix}Ignoring embedding_input since no embedding MLP is used', self.verbose)
         verbosePrint(f'{self.verbosePrefix}Passing through pre-norm layer', self.verbose)
-        x = self.pre_norm_layer(x)
-        verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after pre-norm', x)
+        out = self.pre_norm_layer(x)
+        verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after pre-norm', out)
 
         if self.use_conditioning:
             verboseBannerPrint(f'{self.verbosePrefix}Applying conditioning', self.verbose)
         if gamma_scale is not None:
             verbosePrint(f'{self.verbosePrefix}Applying gamma scaling', self.verbose)
-            x = x * gamma_scale
-            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after gamma scaling', x)
+            out = out * gamma_scale
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after gamma scaling', out)
         if beta_shift is not None:
             verbosePrint(f'{self.verbosePrefix}Applying beta shifting', self.verbose)
-            x = x + beta_shift
-            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after beta shifting', x)
+            out = out + beta_shift
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after beta shifting', out)
 
         # Main MLP
         verbosePrint(f'{self.verbosePrefix}Passing through main MLP', self.verbose)
-        out = self.mlp(x)
+        out = self.mlp(out)
 
         verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after main MLP', out)
         verbosePrint(f'{self.verbosePrefix}Passing through post-norm layer', self.verbose)
@@ -207,6 +235,11 @@ class FeedForwardNetwork(nn.Module):
             verbosePrint(f'{self.verbosePrefix}Applying alpha scaling', self.verbose)
             out = out * alpha_scale
             verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after alpha scaling', out)
+
+        if self.config.ffn_skip_connection:
+            verbosePrint(f'{self.verbosePrefix}Applying skip connection', self.verbose)
+            out = out + self.skip_connection(x)
+            verbosePrintTensor(self.verbosePrintTensor, self.verbosePrefix, 'after skip connection', out)
 
         if unsqueezed:
             verbosePrint(f'{self.verbosePrefix}Removing batch dimension', self.verbose)
