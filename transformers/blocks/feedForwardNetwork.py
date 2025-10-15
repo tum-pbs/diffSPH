@@ -2,6 +2,114 @@ from layers.mlp import *
 from blocks.common import CommonConfiguration
 
 
+def applyAdaptiveScaling(
+    x: torch.Tensor, # Input
+    shapes: List[int], # Shapes of the input tensor [B,N,F,O]
+    embedding: bool, # Whether to use the embedding MLP
+    normLayer: Optional[nn.Module] = None, # The normalization layer to use
+    embedding_mlp: Optional[MLP] = None, # The embedding MLP
+    embedding_input: Optional[Union[List[torch.Tensor], torch.Tensor]] = None, # Input to the embedding MLP
+    verbose: bool = False,
+    verbosePrefix: str = '',
+):
+    B, N, F, O = shapes
+    verbosePrint(f'{verbosePrefix}Input tensor shape: {x.shape}', verbose)
+    gamma_scale = None
+    beta_shift = None
+    alpha_scale = None
+
+    verbosePrint(f'{verbosePrefix}Embedding enabled: {embedding}', verbose)
+    verbosePrint(f'{verbosePrefix}Norm layer: {normLayer}', verbose)
+    verbosePrint(f'{verbosePrefix}Embedding MLP: {embedding_mlp}', verbose)
+    verbosePrint(f'{verbosePrefix}Embedding input provided: {embedding_input is not None}', verbose)
+    verbosePrint(f'{verbosePrefix}Input shapes: B={B}, N={N}, F={F}, O={O}', verbose)
+    
+
+    if embedding_mlp is not None:
+        verboseBannerPrint(f'{verbosePrefix}Processing embedding input', verbose)
+        if embedding_input is None:
+            raise ValueError('embedding_input must be provided when using embedding MLP')
+        verbosePrint(f'{verbosePrefix}Passing through embedding MLP', verbose)
+
+        if isinstance(embedding_input, list):
+            embedding_input = torch.cat(embedding_input, dim=-1)
+        embedding_out = embedding_mlp(embedding_input)
+        # verbosePrintTensor(verbosePrintTensor, verbosePrefix, 'embedding output', embedding_out)
+        # embedding_out is of shape [B, F*2 + O]
+
+        verbosePrint(f'{verbosePrefix}Embedding output shape after processing: {embedding_out.shape}', verbose)
+        gamma_scale = embedding_out[:, :F]
+        beta_shift = embedding_out[:, F:F*2]
+        alpha_scale = embedding_out[:, F*2:]
+        # verbosePrintTensor(verbosePrintTensor, verbosePrefix, 'gamma_scale', gamma_scale)
+        # verbosePrintTensor(verbosePrintTensor, verbosePrefix, 'beta_shift', beta_shift)
+        # verbosePrintTensor(verbosePrintTensor, verbosePrefix, 'alpha_scale', alpha_scale)
+
+
+            # Process the optional scaling and shifting parameters
+        if gamma_scale is not None:
+            if gamma_scale.dim() == 1 and gamma_scale.shape[0] == F:
+                gamma_scale = gamma_scale.view(1, 1, F)
+            elif gamma_scale.dim() == 2 and gamma_scale.shape[0] == B and gamma_scale.shape[1] == F:
+                gamma_scale = gamma_scale.view(B, 1, F)
+            elif gamma_scale.dim() == 2 and gamma_scale.shape[0] == N and gamma_scale.shape[1] == F:
+                gamma_scale = gamma_scale.view(1, N, F)
+            elif gamma_scale.dim() == 3 and gamma_scale.shape[0] == B and gamma_scale.shape[1] == N and gamma_scale.shape[2] == F:
+                pass
+            else:
+                raise ValueError(f'Invalid shape for gamma_scale: {gamma_scale.shape}')
+            verbosePrint(f'{verbosePrefix}gamma_scale shape after processing: {gamma_scale.shape}', verbose)
+            verbosePrintTensor(verbose, verbosePrefix, 'gamma_scale', gamma_scale)
+        if beta_shift is not None:
+            if beta_shift.dim() == 1 and beta_shift.shape[0] == F:
+                beta_shift = beta_shift.view(1, 1, F)
+            elif beta_shift.dim() == 2 and beta_shift.shape[0] == B and beta_shift.shape[1] == F:
+                beta_shift = beta_shift.view(B, 1, F)
+            elif beta_shift.dim() == 2 and beta_shift.shape[0] == N and beta_shift.shape[1] == F:
+                beta_shift = beta_shift.view(1, N, F)
+            elif beta_shift.dim() == 3 and beta_shift.shape[0] == B and beta_shift.shape[1] == N and beta_shift.shape[2] == F:
+                pass
+            else:
+                raise ValueError(f'Invalid shape for beta_shift: {beta_shift.shape}')
+            verbosePrint(f'{verbosePrefix}beta_shift shape after processing: {beta_shift.shape}', verbose)
+            verbosePrintTensor(verbose, verbosePrefix, 'beta_shift', beta_shift)
+        if alpha_scale is not None:
+            if alpha_scale.dim() == 1 and alpha_scale.shape[0] == O:
+                alpha_scale = alpha_scale.view(1, 1, O)
+            elif alpha_scale.dim() == 2 and alpha_scale.shape[0] == B and alpha_scale.shape[1] == O:
+                alpha_scale = alpha_scale.view(B, 1, O)
+            elif alpha_scale.dim() == 2 and alpha_scale.shape[0] == N and alpha_scale.shape[1] == O:
+                alpha_scale = alpha_scale.view(1, N, O)
+            elif alpha_scale.dim() == 3 and alpha_scale.shape[0] == B and alpha_scale.shape[1] == N and alpha_scale.shape[2] == O:
+                pass
+            else:
+                raise ValueError(f'Invalid shape for alpha_scale: {alpha_scale.shape}')
+            
+            verbosePrintTensor(verbosePrintTensor, verbosePrefix, 'alpha_scale', alpha_scale)
+            verbosePrint(f'{verbosePrefix}alpha_scale shape after processing: {alpha_scale.shape}', verbose)
+
+    else:
+        if embedding_input is not None:
+            verbosePrint(f'{verbosePrefix}Ignoring embedding_input since no embedding MLP is used', verbose)
+    verbosePrint(f'{verbosePrefix}Passing through pre-norm layer', verbose)
+    if normLayer is None:
+        normLayer = nn.Identity()
+    out = normLayer(x)
+    verbosePrintTensor(verbosePrintTensor, verbosePrefix, 'after pre-norm', out)
+
+    if embedding:
+        verboseBannerPrint(f'{verbosePrefix}Applying conditioning', verbose)
+    if gamma_scale is not None:
+        verbosePrint(f'{verbosePrefix}Applying gamma scaling', verbose)
+        out = out * gamma_scale
+        verbosePrintTensor(verbosePrintTensor, verbosePrefix, 'after gamma scaling', out)
+    if beta_shift is not None:
+        verbosePrint(f'{verbosePrefix}Applying beta shifting', verbose)
+        out = out + beta_shift
+        verbosePrintTensor(verbosePrintTensor, verbosePrefix, 'after beta shifting', out)
+
+    return out, alpha_scale
+
 
 class FeedForwardNetwork(nn.Module):
     def __init__(self,
@@ -11,6 +119,7 @@ class FeedForwardNetwork(nn.Module):
                 mlpConfig: Optional[MLPConfig] = None,
                 embeddingConfig: Optional[MLPConfig] = None,
                 config: Optional[CommonConfiguration] = None,
+                embedding_dim: Optional[int] = None,
 
                 verbose: bool = False,
                 verbosePrefix: str = '',
@@ -25,6 +134,11 @@ class FeedForwardNetwork(nn.Module):
 
         self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else (self.config.mlpConfig if self.config.mlpConfig is not None else MLPConfig())
         self.embeddingConfig = copy.deepcopy(embeddingConfig) if embeddingConfig is not None else (self.config.embeddingConfig if self.config.embeddingConfig is not None else MLPConfig())
+        if self.config.embedding_dim > 0:
+            self.embeddingConfig.input_dim = self.config.embedding_dim
+        else:
+            self.embeddingConfig.input_dim = embedding_dim if (self.embeddingConfig.input_dim is None or self.embeddingConfig.input_dim < 0) else self.embeddingConfig.input_dim
+
 
         self.norm_type = self.config.norm_type
         self.pre_norm = self.config.pre_norm

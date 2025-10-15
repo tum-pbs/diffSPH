@@ -36,12 +36,12 @@ from .positionEncoder import BasisEncoder, computeBasisEncoderOutputShape, Basis
 from .tokenMixer import TokenMixer, TokenMixerConfig
 @dataclass(slots=True)
 class MessagePassingConfig:
-    token_input_dim: int = field(default=0, metadata={"help": "Dimensionality of the input feature vector per token"})
-    spatial_dim: int = field(default=0, metadata={"help": "Dimensionality of the position vector per token (e.g. 3 for 3D positions)"})
+    token_input_dim: int = field(default=-1, metadata={"help": "Dimensionality of the input feature vector per token"})
+    spatial_dim: int = field(default=-1, metadata={"help": "Dimensionality of the position vector per token (e.g. 3 for 3D positions)"})
 
-    edge_feature_dim: int = field(default=0, metadata={"help": "Dimensionality of the edge feature vector per edge"})
+    edge_feature_dim: int = field(default=-1, metadata={"help": "Dimensionality of the edge feature vector per edge"})
     
-    attention_heads: int = field(default=4, metadata={"help": "Number of attention heads"})
+    attention_heads: int = field(default=-1, metadata={"help": "Number of attention heads"})
     transformer_features: Optional[int] = field(default=None, metadata={"help": "Dimensionality of the attention features per head (if None, set to token_input_dim / attention_heads)"})
 
     encode_tokens: bool = field(default=True, metadata={"help": "Whether to encode the query and key tokens"})
@@ -68,6 +68,13 @@ class MessagePassingConfig:
     position_bias_config: Optional[BasisEncoderConfig] = field(default=None, metadata={"help": "If provided, a BasisEncoderConfig to encode the spatial information before mixing. The input dimension of the encoder must match the spatial_dim."})
 
     window_function_type: str = field(default='cubicSpline', metadata={"help": "Type of window function to use ('cubicSpline', 'wendland4', etc.)"})
+
+    edge_mlp: bool = field(default = False, metadata={"help":"Use an MLP to update the edge features"})
+    edge_mlp_use_edge_features: bool = field(default = True)
+    edge_mlp_use_messages: bool = field(default = True)
+    edge_mlp_use_gathered_features: bool = field(default = False)
+    edge_mlp_skip_connection: bool = field(default=True)
+
 
 def getDefaultMessagePassingConfig(arch: str = 'transformer'):
     if arch == 'transformer':
@@ -209,6 +216,30 @@ class MessagePassingLayer(torch.nn.Module):
         self.mixer = TokenMixer(self.messageMixer, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'Message|', mlpConfig=self.mlpConfig)
 
         self.messageActivation = getActivationLayer(self.config.messageActivation) if self.config.messageActivation is not None else None
+
+        ##
+        # Edge MLP
+        ##
+
+        if self.config.edge_mlp:
+            self.edge_mlp_inputs = 0
+            if self.config.edge_mlp_use_edge_features:
+                self.edge_mlp_inputs += self.edge_feature_dim
+            if self.config.edge_mlp_use_gathered_features:
+                self.edge_mlp_inputs += self.messageMixer.edge_feature_dim
+            if self.config.edge_mlp_use_messages:
+                self.edge_mlp_inputs += self.messageMixer.mixing_out_features
+            self.edgeMLPConfig = copy.deepcopy(self.mlpConfig)
+
+            self.edgeMLP = MLP(
+                in_features = self.edge_mlp_inputs,
+                out_features= self.edge_feature_dim,
+                config = self.edgeMLPConfig,
+                verbose = self.verbose,
+                verbosePrefix = self.verbosePrefix
+            )
+        else:
+            self.edgeMLP = None
 
         ################################################################################
         #                        Post-Message Mixer                           ##
@@ -403,8 +434,30 @@ class MessagePassingLayer(torch.nn.Module):
             verbosePrint(f'{self.verbosePrefix}Gathered messages shape after min: {gathered.shape} [B, Q, T]', self.verbose)
             # gathered shape: (batch_size, num_query_nodes, transformer_features)
 
-        verboseBannerPrint(f'{self.verbosePrefix}MessagePassingLayer forward complete.', self.verbose)
 
-        return gathered
+        if self.edgeMLP is not None:
+            verbosePrint(f'{self.verbosePrefix}Passing edges through Edge MLP', self.verbose)
+            edge_gathered = []
+            if self.config.edge_mlp_use_edge_features:
+                verbosePrint(f'{self.verbosePrefix}Using edge features in Edge MLP {edgeTokens.shape}', self.verbose)
+                edge_gathered.append(edgeTokens.unsqueeze(1))
+            if self.config.edge_mlp_use_gathered_features:
+                verbosePrint(f'{self.verbosePrefix}Using gathered features in Edge MLP {edge_features.shape}', self.verbose)
+                edge_gathered.append(edge_features)
+            if self.config.edge_mlp_use_messages:
+                verbosePrint(f'{self.verbosePrefix}Using messages in Edge MLP {message.shape}', self.verbose)
+                edge_gathered.append(message)
+            edge_gathered = torch.cat(edge_gathered, dim = -1)
+
+            verbosePrint(f'{self.verbosePrefix}Edge MLP input shape: {edge_gathered.shape}', self.verbose)
+            out = self.edgeMLP(edge_gathered)
+            if self.config.edge_mlp_skip_connection:
+                verbosePrint(f'{self.verbosePrefix}Using skip connection in Edge MLP', self.verbose)
+                out = out + edgeTokens.view(out.shape)
+            verboseBannerPrint(f'{self.verbosePrefix}MessagePassingLayer forward complete.', self.verbose)
+            return gathered, out
+
+        verboseBannerPrint(f'{self.verbosePrefix}MessagePassingLayer forward complete.', self.verbose)
+        return gathered #, (edge_features, message)
 
         raise NotImplementedError

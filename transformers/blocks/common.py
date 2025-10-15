@@ -22,6 +22,7 @@ class CommonConfiguration:
     token_output_dim: int = field(default=16, metadata={"help": "Dimensionality of output node features."})
     spatial_dim: int = field(default=2, metadata={"help": "Dimensionality of spatial coordinates."})
     edge_feature_dim: int = field(default=0, metadata={"help": "Dimensionality of edge features."})
+    embedding_dim: int = field(default=-1, metadata={"help": "Dimensionality of conditioning/embedding input, if any."})
 
     # Latent space options
     latent_features: int = field(default=32, metadata={"help": "Dimensionality of latent node features."})
