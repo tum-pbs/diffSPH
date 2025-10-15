@@ -1,24 +1,24 @@
-from layers.layer_attentionMechanism import AttentionMechanismLayer, AttentionMechanismConfig, AttentionLayerConfig
-from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
-from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
-from layers.layer_mixing import TokenMixer, TokenMixerConfig
-from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
-from layers.layer_mlp import MLP, MLPConfig
+from layers.attentionMechanism import AttentionMechanismLayer, AttentionMechanismConfig, AttentionLayerConfig
+from layers.positionEncoder import BasisEncoder, BasisEncoderConfig
+from layers.tokenEncoder import TokenEncoder, TokenEncoderConfig
+from layers.tokenMixer import TokenMixer, TokenMixerConfig
+from layers.messagePassing import MessagePassingLayer, MessagePassingConfig
+from layers.mlp import MLP, MLPConfig
 import torch
 import copy
-from layers.networkUtil import verbosePrint, verboseBannerPrint
+from mlUtil.networkUtil import verbosePrint, verboseBannerPrint
 from typing import Optional, Tuple, Union, List
 from torch import Tensor
 
-from .basicAttention import BasicAttention
-from .basicEncoder import BasicEncoder
-from .basicAttention import BasicAttention
-from .basicMessaging import BasicMessagePassing
+from .attention import BasicAttention
+from .encoder import BasicEncoder
+from .attention import BasicAttention
+from .messagePassing import BasicMessagePassing
 
 from dataclasses import dataclass, field
-from layers.networkUtil import mergeConfigWithKwargs
+from mlUtil.networkUtil import mergeConfigWithKwargs
 # from layers.mlp import getDefaultMLPDict, buildMLPwDict
-from layers.activation import getActivationFromString
+from mlUtil.activation import getActivationFromString
 from .common import CommonConfiguration
 
 

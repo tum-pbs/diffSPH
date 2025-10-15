@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 
-from .windows import getWindowFunction
+from mlUtil.windows import getWindowFunction
 
 try:
     import torch_geometric
@@ -15,16 +15,16 @@ except ImportError:
 from typing import Optional, Union, Tuple
  
 
-from .activation import getActivationLayer
-from .basisFunctions import basisEncoderLayer
-from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
-from .networkUtil import verboseBannerPrint
-from .networkUtil import verbosePrint
-from .sparse import buildSparseTensor
-from .softmax import softmax
+from mlUtil.activation import getActivationLayer
+from mlUtil.basisFunctions import basisEncoderLayer
+from .positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
+from mlUtil.networkUtil import verboseBannerPrint
+from mlUtil.networkUtil import verbosePrint
+from mlUtil.sparse import buildSparseTensor
+from mlUtil.softmax import softmax
 # from .mlp import buildMLPwDict, getDefaultMLPDict
-from .layer_mlp import MLP, MLPConfig
-from .networkUtil import checkTensorShape
+from .mlp import MLP, MLPConfig
+from mlUtil.networkUtil import checkTensorShape
 
 from typing import List, Optional
 from dataclasses import dataclass, field
@@ -32,8 +32,8 @@ from dataclasses import dataclass, field
 
 
 
-from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape, BasisEncoderConfig
-from .layer_mixing import TokenMixer, TokenMixerConfig
+from .positionEncoder import BasisEncoder, computeBasisEncoderOutputShape, BasisEncoderConfig
+from .tokenMixer import TokenMixer, TokenMixerConfig
 @dataclass(slots=True)
 class MessagePassingConfig:
     token_input_dim: int = field(default=0, metadata={"help": "Dimensionality of the input feature vector per token"})
@@ -69,8 +69,34 @@ class MessagePassingConfig:
 
     window_function_type: str = field(default='cubicSpline', metadata={"help": "Type of window function to use ('cubicSpline', 'wendland4', etc.)"})
 
+def getDefaultMessagePassingConfig(arch: str = 'transformer'):
+    if arch == 'transformer':
+        return MessagePassingConfig()
+    elif arch == 'gnn':
+        return MessagePassingConfig(
+            encode_tokens = False,
+            messageMixer = TokenMixerConfig(
+                mode = 'mlp',
+                input_channels=1,
+                include_spatial = False,
+                include_edges = True
+            ),
+            
+            use_attention = False,
+            use_node_i = False,
+            use_node_j = False,
+            use_node_sum = False,
+            use_node_diff = False,
+            use_edge_features = True,
+            use_window_function = False,
+            use_spatial = False,
+            use_rpb = False,
+        )
+    else:
+        raise ValueError(f'Unknown architecture: {arch}')
+
 import copy
-from .networkUtil import mergeConfigWithKwargs
+from mlUtil.networkUtil import mergeConfigWithKwargs
 
 def build_projection(linear, inputDim, outputDim, dict: Optional[MLPConfig] = None, verbose = False, verbosePrefix = ''):
     if linear:
@@ -109,16 +135,16 @@ class MessagePassingLayer(torch.nn.Module):
         self.transformer_features = self.config.transformer_features if self.config.transformer_features is not None else self.config.token_input_dim // self.num_heads
 
         # self.transformer_dim = self.transformer_features * self.num_heads
-        verbosePrint(f'\tLatent dimension: {self.token_input_dim}', self.verbose)
-        verbosePrint(f'\tEdge dimension: {self.edge_feature_dim}', self.verbose)
-        verbosePrint(f'\tTransformer features: {self.transformer_features}', self.verbose)
-        verbosePrint(f'\tNumber of heads: {self.num_heads}', self.verbose)
+        verbosePrint(f'\t{self.verbosePrefix}Latent dimension: {self.token_input_dim}', self.verbose)
+        verbosePrint(f'\t{self.verbosePrefix}Edge dimension: {self.edge_feature_dim}', self.verbose)
+        verbosePrint(f'\t{self.verbosePrefix}Transformer features: {self.transformer_features}', self.verbose)
+        verbosePrint(f'\t{self.verbosePrefix}Number of heads: {self.num_heads}', self.verbose)
 
 
         ################################################################################
         #                        Encode Value Tokens                           #
         ################################################################################
-        verboseBannerPrint(f'Encoding Value Tokens...', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Encoding Value Tokens...', self.verbose)
         self.encode_value = nn.Identity()
         if self.config.encode_tokens:
             self.encode_value = build_projection(
@@ -127,23 +153,23 @@ class MessagePassingLayer(torch.nn.Module):
                 outputDim = self.num_heads * self.transformer_features,
                 dict = self.mlpConfig,
                 verbose = self.verbose,
-                verbosePrefix = self.verbosePrefix+'\t'
+                verbosePrefix = self.verbosePrefix+'TokenEncoder|'
             )
-        verbosePrint(f'Value token encoder: {self.encode_value}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+        verbosePrint(f'{self.verbosePrefix}Value token encoder: {self.encode_value}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
 
         ################################################################################
         #                    (Optional) Relative Position Bias                         #
         ################################################################################
-        verboseBannerPrint(f'Setting up Relative Position Bias...', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Setting up Relative Position Bias...', self.verbose)
 
         if self.config.position_bias_config is not None:
-            self.position_bias_encoder = BasisEncoder(self.config.position_bias_config, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            self.position_bias_encoder = BasisEncoder(self.config.position_bias_config, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'PositionBias|')
             rpb_feature_dim = computeBasisEncoderOutputShape(self.config.position_bias_config)[-1]
-            verbosePrint(f'Using relative position bias with feature dimension {rpb_feature_dim}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrint(f'{self.verbosePrefix}Using relative position bias with feature dimension {rpb_feature_dim}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         else:
             self.position_bias_encoder = nn.Identity()
             rpb_feature_dim = self.config.rpb_feature_dim
-            verbosePrint(f'Not using relative position bias.', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrint(f'{self.verbosePrefix}Not using relative position bias.', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
 
 
         self.messageMixer = copy.deepcopy(self.config.messageMixer) if self.config.messageMixer is not None else TokenMixerConfig()
@@ -176,36 +202,36 @@ class MessagePassingLayer(torch.nn.Module):
             edge_features += self.token_input_dim
         if self.config.use_node_diff:
             edge_features += self.token_input_dim
-        verbosePrint(f'Edge features to be used in message mixer: {edge_features}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+        verbosePrint(f'{self.verbosePrefix}Edge features to be used in message mixer: {edge_features}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         self.messageMixer.edge_feature_dim = edge_features
 
         verbosePrint(f'Message Mixer config: {self.messageMixer}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-        self.mixer = TokenMixer(self.messageMixer, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t', mlpConfig=self.mlpConfig)
+        self.mixer = TokenMixer(self.messageMixer, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'Message|', mlpConfig=self.mlpConfig)
 
         self.messageActivation = getActivationLayer(self.config.messageActivation) if self.config.messageActivation is not None else None
 
         ################################################################################
         #                        Post-Message Mixer                           ##
         ################################################################################
-        verboseBannerPrint(f'Setting up Post-Message Mixer...', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Setting up Post-Message Mixer...', self.verbose)
         if self.config.postMessageMixer is not None:
-            self.postMessageMixer = TokenMixer(self.config.postMessageMixer, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
-            verbosePrint(f'Post-Message Mixer config: {self.config.postMessageMixer}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            self.postMessageMixer = TokenMixer(self.config.postMessageMixer, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'PostMessage|', mlpConfig=self.mlpConfig)
+            verbosePrint(f'{self.verbosePrefix}Post-Message Mixer config: {self.config.postMessageMixer}', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         else:
             self.postMessageMixer = None
-            verbosePrint(f'No Post-Message Mixer.', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrint(f'{self.verbosePrefix}No Post-Message Mixer.', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
 
         ################################################################################
         #                        Multi-Head Aggregation                           ##
         ################################################################################
-        verboseBannerPrint(f'Setting up Multi-Head Aggregation...', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Setting up Multi-Head Aggregation...', self.verbose)
         valid_aggregations = ['concat', 'mean', 'sum', 'max', 'min']
         if self.config.multiHeadAggregation not in valid_aggregations:
             raise ValueError(f'Invalid multiHeadAggregation: {self.config.multiHeadAggregation}, must be one of {valid_aggregations}')
         self.multiHeadAggregation = self.config.multiHeadAggregation
-        verbosePrint(f'Using {self.multiHeadAggregation} for multi-head aggregation.', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+        verbosePrint(f'{self.verbosePrefix}Using {self.multiHeadAggregation} for multi-head aggregation.', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
 
-        verboseBannerPrint('MessagePassingLayer Built', verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}MessagePassingLayer Built', self.verbose)
 
 
 
@@ -220,7 +246,7 @@ class MessagePassingLayer(torch.nn.Module):
                 positionBiasTokens: Optional[Tensor] = None, # shape [*, H?, F_rpb]
                 windowValues: Optional[Tensor] = None, # shape [*,H?]
     ):
-        verboseBannerPrint('Running MessagePassingLayer...', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Running MessagePassingLayer...', self.verbose)
         rows = edge_index[0]
         cols = edge_index[1]
         num_edges = edge_index.shape[1]
@@ -228,103 +254,103 @@ class MessagePassingLayer(torch.nn.Module):
         num_key_nodes = valueTokens.shape[1]
         num_query_nodes = queryTokens.shape[1]
 
-        verbosePrint(f'Query tokens shape: {queryTokens.shape} [B, Q, L]', self.verbose)
-        verbosePrint(f'Value tokens shape: {valueTokens.shape} [B, V, L]', self.verbose)
-        verbosePrint(f'Edge index shape: {edge_index.shape} [2, E]', self.verbose)
-        verbosePrint(f'Number of edges: {num_edges}', self.verbose)
-        verbosePrint(f'Number of query nodes: {num_query_nodes}', self.verbose)
-        verbosePrint(f'Number of key/value nodes: {num_key_nodes}', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Query tokens shape: {queryTokens.shape} [B, Q, L]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Value tokens shape: {valueTokens.shape} [B, V, L]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Edge index shape: {edge_index.shape} [2, E]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Number of edges: {num_edges}', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Number of query nodes: {num_query_nodes}', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Number of key/value nodes: {num_key_nodes}', self.verbose)
 
 
         ################################################################################
         #                          Encode Value Tokens                        #
         ################################################################################
-        verboseBannerPrint(f'Encoding value tokens...', self.verbose)
-        verbosePrint(f'Value tokens shape before encoding: {valueTokens.shape} [B, V, L]', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Encoding value tokens...', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Value tokens shape before encoding: {valueTokens.shape} [B, V, L]', self.verbose)
 
         valueTokensEncoded = self.encode_value(valueTokens)
 
-        verbosePrint(f'Value tokens encoded shape: {valueTokensEncoded.shape} [B, V, H*T]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Value tokens encoded shape: {valueTokensEncoded.shape} [B, V, H*T]', self.verbose)
 
         ################################################################################
         #                        Scatter Tokens to Edges                               #
         ################################################################################
-        verboseBannerPrint(f'Scattering value tokens to edges...', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Scattering value tokens to edges...', self.verbose)
 
         flattenedValueTokens = valueTokensEncoded.flatten(0, 1)
-        verbosePrint(f'Flattened value tokens shape: {flattenedValueTokens.shape} [B*V, H*T]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Flattened value tokens shape: {flattenedValueTokens.shape} [B*V, H*T]', self.verbose)
 
         V_j = flattenedValueTokens[edge_index[1]]  # (num_edges, H*T)
-        verbosePrint(f'Scattered value tokens V_j shape: {V_j.shape} [E, H*T]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Scattered value tokens V_j shape: {V_j.shape} [E, H*T]', self.verbose)
 
         ################################################################################
         #                  (Optional) Relative Position Bias                         #
         ################################################################################
-        verboseBannerPrint(f'Computing Relative Position Bias...', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Computing Relative Position Bias...', self.verbose)
 
         rpb_features = None
         if self.config.position_bias_config is not None:
             if spatialTokens is None:
                 raise ValueError("AttentionMechanismLayer: position_bias_config is set but edge_attr is None")
             rpb_features = self.position_bias_encoder(spatialTokens)
-            verbosePrint(f'Relative position bias features shape: {rpb_features.shape} [E, R]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Relative position bias features shape: {rpb_features.shape} [E, R]', self.verbose)
 
         ################################################################################
         #                       Reshape V_j for Attention                      #
         ################################################################################
-        verboseBannerPrint(f'Reshaping V_j for attention...', self.verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}Reshaping V_j for attention...', self.verbose)
 
         V_j = V_j.view(-1, self.num_heads, self.transformer_features)  # (num_edges, H, T)
-        verbosePrint(f'reshaped V_j shape: {V_j.shape} [E, H, T]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}reshaped V_j shape: {V_j.shape} [E, H, T]', self.verbose)
 
         self.edge_features = []
         if self.config.use_edge_features:
             if edgeTokens is None:
                 raise ValueError("MessagePassingLayer: use_edge_features is True but edgeTokens is None")
             self.edge_features.append(edgeTokens)
-            verbosePrint(f'Using edge features with shape: {edgeTokens.shape} [E, F_e]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using edge features with shape: {edgeTokens.shape} [E, F_e]', self.verbose)
         if self.config.use_window_function:
             if windowValues is None:
                 raise ValueError("MessagePassingLayer: use_window_function is True but windowValues is None")
             self.edge_features.append(windowValues.unsqueeze(-1))
-            verbosePrint(f'Using window function values with shape: {windowValues.shape} [E, 1]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using window function values with shape: {windowValues.shape} [E, 1]', self.verbose)
         if self.config.use_spatial:
             if spatialTokens is None:
                 raise ValueError("MessagePassingLayer: use_spatial is True but spatialTokens is None")
             self.edge_features.append(spatialTokens)
-            verbosePrint(f'Using spatial tokens with shape: {spatialTokens.shape} [E, D]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using spatial tokens with shape: {spatialTokens.shape} [E, D]', self.verbose)
         if self.config.use_rpb:
             if rpb_features is None:
                 raise ValueError("MessagePassingLayer: use_rpb is True but rpb_features is None")
             self.edge_features.append(rpb_features)
-            verbosePrint(f'Using relative position bias features with shape: {rpb_features.shape} [E, R]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using relative position bias features with shape: {rpb_features.shape} [E, R]', self.verbose)
         if self.config.use_attention:
             if edgeAttention is None:
                 raise ValueError("MessagePassingLayer: use_attention is True but edgeAttention is None")
             self.edge_features.append(edgeAttention)
-            verbosePrint(f'Using attention values with shape: {edgeAttention.shape} [E, H]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using attention values with shape: {edgeAttention.shape} [E, H]', self.verbose)
         if self.config.use_node_i:
             node_i = queryTokens.flatten(0,1)[edge_index[0]]  # (num_edges, L)
             self.edge_features.append(node_i)
-            verbosePrint(f'Using node i features with shape: {node_i.shape} [E, L]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using node i features with shape: {node_i.shape} [E, L]', self.verbose)
         if self.config.use_node_j:
             node_j = valueTokens.flatten(0,1)[edge_index[1]]  # (num_edges, L)
             self.edge_features.append(node_j)
-            verbosePrint(f'Using node j features with shape: {node_j.shape} [E, L]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using node j features with shape: {node_j.shape} [E, L]', self.verbose)
         if self.config.use_node_sum:
             node_sum = queryTokens.flatten(0,1)[edge_index[0]] + valueTokens.flatten(0,1)[edge_index[1]]  # (num_edges, L)
             self.edge_features.append(node_sum)
-            verbosePrint(f'Using node sum features with shape: {node_sum.shape} [E, L]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using node sum features with shape: {node_sum.shape} [E, L]', self.verbose)
         if self.config.use_node_diff:
             node_diff = queryTokens.flatten(0,1)[edge_index[0]] - valueTokens.flatten(0,1)[edge_index[1]]  # (num_edges, L)
             self.edge_features.append(node_diff)
-            verbosePrint(f'Using node diff features with shape: {node_diff.shape} [E, L]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Using node diff features with shape: {node_diff.shape} [E, L]', self.verbose)
         if len(self.edge_features) > 0:
             edge_features = torch.cat(self.edge_features, dim=-1)  # (num_edges, F_total)
-            verbosePrint(f'Combined edge features shape: {edge_features.shape} [E, F_total]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Combined edge features shape: {edge_features.shape} [E, F_total]', self.verbose)
         else:
             edge_features = None
-            verbosePrint(f'No edge features to use.', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}No edge features to use.', self.verbose)
 
         message = self.mixer(
             V_j,
@@ -333,10 +359,10 @@ class MessagePassingLayer(torch.nn.Module):
             positionBiasTokens = rpb_features,
             windowValues = windowValues,
         )
-        verbosePrint(f'Message shape after mixer: {message.shape} [E, H, T]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Message shape after mixer: {message.shape} [E, H, T]', self.verbose)
         if self.messageActivation is not None:
             message = self.messageActivation(message)
-        verbosePrint(f'Message shape after mixer: {message.shape} [E, H, T]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Message shape after activation: {message.shape} [E, H, T]', self.verbose)
 
         if self.postMessageMixer is not None:
             message = self.postMessageMixer(
@@ -346,36 +372,38 @@ class MessagePassingLayer(torch.nn.Module):
                 positionBiasTokens = rpb_features,
                 windowValues = windowValues,
             )
-            verbosePrint(f'Message shape after post-message mixer: {message.shape} [E, H, T]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Message shape after post-message mixer: {message.shape} [E, H, T]', self.verbose)
 
         gathered = torch_geometric.utils.scatter(
             message, rows, dim=0, dim_size=num_query_nodes * batch_size, reduce='sum')
-        verbosePrint(f'Gathered messages shape before multi-head aggregation: {gathered.shape} [B*Q, H, T]', self.verbose)
+        verbosePrint(f'{self.verbosePrefix}Gathered messages shape before multi-head aggregation: {gathered.shape} [B*Q, H, T]', self.verbose)
 
         if self.multiHeadAggregation == 'concat':
             gathered = gathered.view(batch_size, num_query_nodes, self.num_heads * self.transformer_features)
-            verbosePrint(f'Gathered messages shape after concat: {gathered.shape} [B, Q, H*T]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Gathered messages shape after concat: {gathered.shape} [B, Q, H*T]', self.verbose)
             # gathered shape: (batch_size, num_query_nodes, num_heads * transformer_features)
         elif self.multiHeadAggregation == 'mean':
             gathered = gathered.view(batch_size, num_query_nodes, self.num_heads, self.transformer_features)
             gathered = gathered.mean(dim=2)  # average over heads
-            verbosePrint(f'Gathered messages shape after mean: {gathered.shape} [B, Q, T]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Gathered messages shape after mean: {gathered.shape} [B, Q, T]', self.verbose)
             # gathered shape: (batch_size, num_query_nodes, transformer_features)
         elif self.multiHeadAggregation == 'sum':
             gathered = gathered.view(batch_size, num_query_nodes, self.num_heads, self.transformer_features)
             gathered = gathered.sum(dim=2)  # sum over heads
-            verbosePrint(f'Gathered messages shape after sum: {gathered.shape} [B, Q, T]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Gathered messages shape after sum: {gathered.shape} [B, Q, T]', self.verbose)
             # gathered shape: (batch_size, num_query_nodes, transformer_features)
         elif self.multiHeadAggregation == 'max':
             gathered = gathered.view(batch_size, num_query_nodes, self.num_heads, self.transformer_features)
             gathered, _ = gathered.max(dim=2)  # max over heads
-            verbosePrint(f'Gathered messages shape after max: {gathered.shape} [B, Q, T]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Gathered messages shape after max: {gathered.shape} [B, Q, T]', self.verbose)
             # gathered shape: (batch_size, num_query_nodes, transformer_features)
         elif self.multiHeadAggregation == 'min':
             gathered = gathered.view(batch_size, num_query_nodes, self.num_heads, self.transformer_features)
             gathered, _ = gathered.min(dim=2)  # min over heads
-            verbosePrint(f'Gathered messages shape after min: {gathered.shape} [B, Q, T]', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}Gathered messages shape after min: {gathered.shape} [B, Q, T]', self.verbose)
             # gathered shape: (batch_size, num_query_nodes, transformer_features)
+
+        verboseBannerPrint(f'{self.verbosePrefix}MessagePassingLayer forward complete.', self.verbose)
 
         return gathered
 

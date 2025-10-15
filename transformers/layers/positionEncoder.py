@@ -4,14 +4,14 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 from typing import Optional
-from .basisFunctions import basisEncoderLayer, evalBasisFunction
+from mlUtil.basisFunctions import basisEncoderLayer, evalBasisFunction
 # from .mlp import getDefaultMLPDict, buildMLPwDict
-from .layer_mlp import MLP, MLPConfig
-from .networkUtil import verbosePrint, verboseBannerPrint
+from .mlp import MLP, MLPConfig
+from mlUtil.networkUtil import verbosePrint, verboseBannerPrint
 
 from typing import Optional, Union, Tuple, List
 from dataclasses import dataclass, field
-from .activation import getActivationFromString
+from mlUtil.activation import getActivationFromString
 import numpy as np
 
 def printTensor(name, tensor):
@@ -111,7 +111,7 @@ def updateBasisEncoderConfig(config: BasisEncoderConfig, **kwargs) -> BasisEncod
 import itertools
 from math import prod
 import copy
-from .networkUtil import shapeMatch, verbosePrintSpatialTensorStats
+from mlUtil.networkUtil import shapeMatch, verbosePrintSpatialTensorStats
 
 def checkBasisDim(
     spatial_dim: int,
@@ -207,7 +207,7 @@ Args:
     verbose: bool: Whether to print verbose output during initialization and forward pass.
     verbosePrefix: str: Prefix for verbose output messages.
 """
-from .mapping import map_positions
+from mlUtil.mapping import map_positions
 
 class BasisEncoder(nn.Module):
     def __init__(self,
@@ -272,8 +272,8 @@ class BasisEncoder(nn.Module):
                 
         
     def forward(self, inputPositions: Tensor) -> Tensor:        
-        verboseBannerPrint('BasisEncoder Forward Pass', verbose=self.verbose)
-        verbosePrintSpatialTensorStats(inputPositions, name='Input Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+        verboseBannerPrint(f'{self.verbosePrefix}BasisEncoder Forward Pass', verbose=self.verbose)
+        verbosePrintSpatialTensorStats(inputPositions, name=f'{self.verbosePrefix}Input Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         # the shape here is either [B,N,D] or [E,D] or [1,E,D]
         # we need to convert to an internal [E,D] shape
         normalizedPositions, batches, entries, dim = shapeMatch(inputPositions)
@@ -281,7 +281,7 @@ class BasisEncoder(nn.Module):
         verbosePrint(f'{self.verbosePrefix}Input positions shape before shapeMatch: {inputPositions.shape}', verbose=self.verbose)
         verbosePrint(f'{self.verbosePrefix}Input positions shape after shapeMatch: {normalizedPositions.shape}, batches={batches}, entries={entries}, dim={dim}', verbose=self.verbose)
         if self.verbose:
-            printTensor('Input positions after shapeMatch', normalizedPositions)
+            printTensor(f'{self.verbosePrefix}Input positions after shapeMatch', normalizedPositions)
         if normalizedPositions.shape != inputPositions.shape:
             mapped = True
         else:
@@ -292,25 +292,25 @@ class BasisEncoder(nn.Module):
         
         if self.config.clamp_positions:
             normalizedPositions = torch.clamp(normalizedPositions, self.config.clamp_min, self.config.clamp_max)
-            verbosePrintSpatialTensorStats(normalizedPositions, name='Clamped Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrintSpatialTensorStats(normalizedPositions, name=f'{self.verbosePrefix}Clamped Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         if self.config.normalize_positions:
             max_length = torch.max(torch.norm(normalizedPositions, dim=-1, keepdim=True))
             if max_length > 0:
                 normalizedPositions = normalizedPositions / max_length
-            verbosePrintSpatialTensorStats(normalizedPositions, name='Normalized Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrintSpatialTensorStats(normalizedPositions, name=f'{self.verbosePrefix}Normalized Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         if self.config.layer_norm:
             normalizedPositions = self.layerNorm(normalizedPositions)
-            verbosePrintSpatialTensorStats(normalizedPositions, name='LayerNorm Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrintSpatialTensorStats(normalizedPositions, name=f'{self.verbosePrefix}LayerNorm Positions', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         if self.config.base_projection != 'cartesian':
             normalizedPositions = map_positions(normalizedPositions, self.config.base_projection)
-            verbosePrintSpatialTensorStats(normalizedPositions, name=f'Mapped Positions ({self.config.base_projection})', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrintSpatialTensorStats(normalizedPositions, name=f'{self.verbosePrefix}Mapped Positions ({self.config.base_projection})', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
 
         if self.verbose:
-            printTensor('Input positions after optional normalization/clamping/mapping', normalizedPositions)
+            printTensor(f'{self.verbosePrefix}Input positions after optional normalization/clamping/mapping', normalizedPositions)
 
         bTerms = []
         if self.config.base_encoding:
-            verbosePrint(f'Applying basis encoding with functions {self.base_function} and terms {self.base_terms}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrint(f'{self.verbosePrefix}Applying basis encoding with functions {self.base_function} and terms {self.base_terms}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
             for e, b, f in zip(normalizedPositions.T, self.base_terms, self.base_function):
                 bTerm = evalBasisFunction(b, e, f).mT
                 bTerms.append(bTerm)
@@ -342,7 +342,7 @@ class BasisEncoder(nn.Module):
             raise ValueError(f'Unknown mode: {self.config.base_mode}')
 
         if self.verbose:
-            printTensor('Basis terms before scaling/projection', combinedTerms)
+            printTensor(f'{self.verbosePrefix}Basis terms before scaling/projection', combinedTerms)
 
         verbosePrint(f'Combined basis terms shape: {combinedTerms.shape}', verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t')
         

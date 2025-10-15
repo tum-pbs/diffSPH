@@ -1,26 +1,26 @@
-from layers.layer_attentionMechanism import AttentionMechanismLayer, AttentionMechanismConfig, AttentionLayerConfig
-from layers.layer_positionEncoder import BasisEncoder, BasisEncoderConfig
-from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
-from layers.layer_mixing import TokenMixer, TokenMixerConfig
-from layers.layer_messagePassing import MessagePassingLayer, MessagePassingConfig
-from layers.layer_mlp import MLP, MLPConfig
+from layers.attentionMechanism import AttentionMechanismLayer, AttentionMechanismConfig, AttentionLayerConfig
+from layers.positionEncoder import BasisEncoder, BasisEncoderConfig
+from layers.tokenEncoder import TokenEncoder, TokenEncoderConfig
+from layers.tokenMixer import TokenMixer, TokenMixerConfig
+from layers.messagePassing import MessagePassingLayer, MessagePassingConfig
+from layers.mlp import MLP, MLPConfig
 import torch
 import copy
-from layers.networkUtil import verbosePrint, verboseBannerPrint
+from mlUtil.networkUtil import verbosePrint, verboseBannerPrint
 from typing import Optional, Tuple, Union, List
 from torch import Tensor
 
 # from layers.mlp import getDefaultMLPDict, buildMLPwDict
 
-from .basicAttention import BasicAttention
-from .basicEncoder import BasicEncoder
-from .basicAttention import BasicAttention
-from .basicMessaging import BasicMessagePassing
+from blocks.attention import BasicAttention
+from blocks.encoder import BasicEncoder
+from blocks.attention import BasicAttention
+from blocks.messagePassing import BasicMessagePassing
 
 from dataclasses import dataclass, field
-from layers.networkUtil import mergeConfigWithKwargs
-from layers.activation import getActivationFromString
-from .common import CommonConfiguration
+from mlUtil.networkUtil import mergeConfigWithKwargs
+from mlUtil.activation import getActivationFromString
+from blocks.common import CommonConfiguration
 
 def printTensor(name, tensor):
     print(''.join(['-']*80))
@@ -37,31 +37,41 @@ def printTensor(name, tensor):
     #     print(f'\tParticle {i}: min: {tensor[:,i].min().item()}, max: {tensor[:,i].max().item()}, mean: {tensor[:,i].mean().item()}, std: {tensor[:,i].std().item()}, data: ')
     print(''.join(['-']*80))
 
+from layers.messagePassing import getDefaultMessagePassingConfig
 
 class GNNModel(torch.nn.Module):
     def __init__(self,
         config: Optional[CommonConfiguration] = None,
+        messagePassingConfig: Optional[MessagePassingConfig] = None,
         latent_edge_features = 0,
 
         use_edge_mlp: bool = False,
         use_edge_encoder = True,
 
         inputEdgeEncoderTokenConfig: Optional[TokenEncoderConfig] = None,
-        mlpConfig: Optional[MLPConfig] = None,
+        # mlpConfig: Optional[MLPConfig] = None,
         use_basis_encoder: bool = True,
 
         verbose: bool = False,
         verbosePrefix: str = '',
         **kwargs):
-        if mlpConfig is None:
-            raise ValueError('[DEBUG] mlpConfig must be provided.')
+        # if mlpConfig is None:
+            # raise ValueError('[DEBUG] mlpConfig must be provided.')
         super(GNNModel, self).__init__()
-        verbosePrint('Initializing GNN Model...', verbose)
+        verboseBannerPrint(f'{verbosePrefix}Initializing GNN Model...', verbose)
         self.config = copy.deepcopy(config) if config is not None else CommonConfiguration()
         self.config = mergeConfigWithKwargs(self.config, **kwargs)
-        self.mlpConfig = copy.deepcopy(mlpConfig) if mlpConfig is not None else MLPConfig()
 
-        verbosePrint(f'\tGNN config: {self.config}', verbose)
+        self.messagePassingConfig = copy.deepcopy(messagePassingConfig) if messagePassingConfig is not None else getDefaultMessagePassingConfig('gnn')
+        self.messagePassingConfig = mergeConfigWithKwargs(self.messagePassingConfig, **kwargs)
+
+        # sync some parameters
+        self.messagePassingConfig.spatial_dim = self.config.spatial_dim
+
+
+        self.mlpConfig = copy.deepcopy(self.config.mlpConfig) if self.config.mlpConfig is not None else MLPConfig()
+
+        verbosePrint(f'{verbosePrefix}\tGNN config: {self.config}', verbose)
 
         # mlp_dict = self.config.mlp_dict if self.config.mlp_dict is not None else getDefaultMLPDict()
         # mlp_dict['layout'] = [64] * self.config.mlp_hidden_layers
@@ -88,7 +98,7 @@ class GNNModel(torch.nn.Module):
         self.hidden_layers = self.config.hidden_layers
 
         if self.use_encoder:
-            verbosePrint(f'\tAdding input node encoder.', verbose)
+            verbosePrint(f'{self.verbosePrefix}\tAdding input node encoder.', verbose)
             self.input_node_encoder = BasicEncoder(
                 input_dim = self.token_input_dim,
                 output_dim = self.latent_features,
@@ -102,14 +112,15 @@ class GNNModel(torch.nn.Module):
 
                 # hidden_layers = len(mlp_dict['layout']),
                 mlpConfig = self.mlpConfig,
-                verbose = verbose
+                verbose = verbose,
+                verbosePrefix= verbosePrefix + 'NodeEnc|'
             )
             current_token_dim = self.latent_features
         else:
             current_token_dim = self.token_input_dim
 
         if self.use_edge_encoder and self.config.spatial_dim > 0:
-            verbosePrint(f'\tAdding input edge encoder.', verbose)
+            verbosePrint(f'{self.verbosePrefix}\tAdding input edge encoder.', verbose)
             self.input_edge_encoder = BasisEncoder(
                 config = BasisEncoderConfig(
                     spatial_dim = self.config.spatial_dim,
@@ -123,20 +134,20 @@ class GNNModel(torch.nn.Module):
                     projection_linear = True,
                     projection_dim = self.latent_edge_features,
                     # projection_mlp = mlp_dict,
-                ),
+                )  if inputEdgeEncoderTokenConfig is None else inputEdgeEncoderTokenConfig,
                 mlpConfig = self.mlpConfig,
                 verbose = verbose,
-                verbosePrefix = 'EdgeEnc|'
+                verbosePrefix = verbosePrefix + 'EdgeEnc|'
             )
 
             current_edge_dim = self.latent_edge_features
         else:
             current_edge_dim = self.edge_feature_dim
 
-        verbosePrint(f'Initial token dimensions: {self.token_input_dim}', verbose)
-        verbosePrint(f'Initial edge dimensions: {self.edge_feature_dim}', verbose)
+        verbosePrint(f'{self.verbosePrefix}Initial token dimensions: {self.token_input_dim}', verbose)
+        verbosePrint(f'{self.verbosePrefix}Initial edge dimensions: {self.edge_feature_dim}', verbose)
 
-        verbosePrint(f'Set up input dimensions: token_input_dim={current_token_dim}, edge_feature_dim={current_edge_dim}', verbose)
+        verbosePrint(f'{self.verbosePrefix}Set up input dimensions: token_input_dim={current_token_dim}, edge_feature_dim={current_edge_dim}', verbose)
 
         self.message_passing_layers = torch.nn.ModuleList()
         self.message_edge_mlps = torch.nn.ModuleList() if use_edge_mlp else None
@@ -148,39 +159,24 @@ class GNNModel(torch.nn.Module):
         self.message_projs = torch.nn.ModuleList() if self.config.message_skip_connections and self.config.message_skip_projection else None
 
         for layer in range(self.hidden_layers):
-            verbosePrint(f'\tAdding message passing layer {layer+1}/{self.hidden_layers}.', verbose)
+            verbosePrint(f'{self.verbosePrefix}\tAdding message passing layer {layer+1}/{self.hidden_layers}.', verbose)
+            self.messagePassingConfig.token_input_dim = current_token_dim 
+            self.messagePassingConfig.edge_feature_dim = current_edge_dim
+            self.messagePassingConfig.transformer_features = self.latent_features
+            self.messagePassingConfig.attention_heads = 1  # Currently only supports single head in message passing
+            if self.messagePassingConfig.messageMixer is None:
+                self.messagePassingConfig.messageMixer = TokenMixerConfig(
+                    input_channels = 1,
+                    mode = 'mlp',
+                    # mlp_dict = mlp_dict,
+
+                    include_spatial = False,
+                    include_edges = True,
+                )
+
             self.message_passing_layers.append(
                 MessagePassingLayer(
-                config = MessagePassingConfig(
-                    encode_tokens = False,
-
-                    token_input_dim= current_token_dim,
-                    spatial_dim = self.config.spatial_dim,
-                    edge_feature_dim = current_edge_dim,
-                    attention_heads = 1,
-                    transformer_features = self.latent_features,
-
-                    messageMixer = TokenMixerConfig(
-                        input_channels = 1,
-                        mode = 'mlp',
-                        # mlp_dict = mlp_dict,
-
-                        include_spatial = False,
-                        include_edges = True,
-                    ),
-
-                    use_attention = False,
-                    use_node_i = False,
-                    use_node_j = False,
-                    use_node_sum = False,
-                    use_node_diff = False,
-                    use_edge_features = True,
-                    use_window_function = False,
-                    use_spatial = False,
-                    use_rpb = False,
-
-
-                ),
+                config = self.messagePassingConfig,
                 mlpConfig = self.mlpConfig,
                     verbose = verbose,
                     verbosePrefix = f'{verbosePrefix}  L{layer+1}|'
@@ -197,9 +193,9 @@ class GNNModel(torch.nn.Module):
                 if layer == self.hidden_layers - 1 and self.config.ffn_skip_last:
                     verbosePrint(f'\t\tSkipping FFN at last layer {layer+1} due to ffn_skip_last=True.', verbose)
                     continue
-                verbosePrint(f'\t\tAdding FFN at layer {layer+1}.', verbose)
-                verbosePrint(f'\t\tFFN input/output dim: {self.latent_features}', verbose)
-                verbosePrint(f'\t\tFFN config: {self.mlpConfig}', verbose)
+                verbosePrint(f'{self.verbosePrefix}\t\tAdding FFN at layer {layer+1}.', verbose)
+                verbosePrint(f'{self.verbosePrefix}\t\tFFN input/output dim: {self.latent_features}', verbose)
+                verbosePrint(f'{self.verbosePrefix}\t\tFFN config: {self.mlpConfig}', verbose)
                 self.ffns.append(
                     MLP(in_features = self.latent_features, out_features = self.latent_features,verbose=verbose,verbosePrefix=f'FFN|L{layer+1}|',config=self.mlpConfig)
                     # buildMLPwDict(mlp_dict, inputDim=self.latent_features, outputDim=self.latent_features)
@@ -208,7 +204,7 @@ class GNNModel(torch.nn.Module):
                     self.ffn_norms.append(torch.nn.LayerNorm(self.latent_features))
 
                 if self.config.ffn_skip_connection:
-                    verbosePrint(f'\t\tUsing skip connection for FFN at layer {layer+1}.', verbose)
+                    verbosePrint(f'{self.verbosePrefix}\t\tUsing skip connection for FFN at layer {layer+1}.', verbose)
                     if self.config.ffn_skip_projection:
                         self.ffn_projs.append(
                             torch.nn.Linear(self.latent_features, self.latent_features, bias = False)
@@ -218,7 +214,7 @@ class GNNModel(torch.nn.Module):
             current_token_dim = self.latent_features  # Assuming message passing does not change token dim
 
             if use_edge_mlp and layer < self.hidden_layers - 1:  # No edge MLP after last layer
-                verbosePrint(f'\t\tAdding edge MLP to update edge features from {current_edge_dim} to {self.latent_edge_features}.', verbose)
+                verbosePrint(f'{self.verbosePrefix}\t\tAdding edge MLP to update edge features from {current_edge_dim} to {self.latent_edge_features}.', verbose)
                 out_edgeMessages = TokenMixer(
                     transformer_features = current_edge_dim,
                     mixing_out_features = self.latent_edge_features,
@@ -239,11 +235,11 @@ class GNNModel(torch.nn.Module):
                 current_edge_dim = self.latent_edge_features
                 # verbosePrint(f'\t\tAdding edge MLP to update edge features to {current_edge_dim}.', verbose)
             else:
-                verbosePrint(f'\t\tSkipping edge MLP, keeping edge features at {current_edge_dim}.', verbose)
+                verbosePrint(f'{self.verbosePrefix}\t\tSkipping edge MLP, keeping edge features at {current_edge_dim}.', verbose)
 
 
         if self.use_decoder:
-            verbosePrint(f'\tUsing output decoder.', verbose)
+            verbosePrint(f'{self.verbosePrefix}\tUsing output decoder.', verbose)
             self.outputDecoder = BasicEncoder(
                 input_dim = current_token_dim,
                 output_dim = self.token_output_dim,
@@ -255,15 +251,15 @@ class GNNModel(torch.nn.Module):
                 verbose = verbose
             )
         else:
-            verbosePrint(f'\tSkipping output decoder.', verbose)
+            verbosePrint(f'{self.verbosePrefix}\tSkipping output decoder.', verbose)
             self.outputDecoder = torch.nn.Identity()
             if self.config.outputDecoderTokenConfig is not None:
-                verbosePrint(f'\tWarning: outputDecoderTokenConfig provided but use_decoder is False. Ignoring outputDecoderTokenConfig.', verbose)
+                verbosePrint(f'{self.verbosePrefix}\tWarning: outputDecoderTokenConfig provided but use_decoder is False. Ignoring outputDecoderTokenConfig.', verbose)
 
-        verbosePrint(f'\tFinal token dimension: {current_token_dim}', verbose)
-        verbosePrint(f'\tFinal edge dimension: {current_edge_dim}', verbose)
+        verbosePrint(f'{self.verbosePrefix}\tFinal token dimension: {current_token_dim}', verbose)
+        verbosePrint(f'{self.verbosePrefix}\tFinal edge dimension: {current_edge_dim}', verbose)
 
-        verboseBannerPrint('GNN Model initialization complete.', verbose)
+        verboseBannerPrint(f'{self.verbosePrefix}GNN Model initialization complete.', verbose)
 
     def forward(self,
         node_features: Union[Tensor, Tuple[Tensor, Tensor]], 
@@ -273,8 +269,8 @@ class GNNModel(torch.nn.Module):
         edge_spatial_features: Optional[Tensor] = None
     ):
         if self.verbose:
-            print(f'GNN forward pass with {node_features.shape[0]} batches, {node_features.shape[1]} nodes per batch, {node_features.shape[2]} features per node.')
-            print(f'\tEdge indices shape: {edge_indices.shape}, edge features shape: {edge_features.shape if edge_features is not None else None}, edge spatial features shape: {edge_spatial_features.shape if edge_spatial_features is not None else None}.')
+            print(f'{self.verbosePrefix}GNN forward pass with {node_features.shape[0]} batches, {node_features.shape[1]} nodes per batch, {node_features.shape[2]} features per node.')
+            print(f'{self.verbosePrefix}\tEdge indices shape: {edge_indices.shape}, edge features shape: {edge_features.shape if edge_features is not None else None}, edge spatial features shape: {edge_spatial_features.shape if edge_spatial_features is not None else None}.')
 
         nodes_query = node_features if isinstance(node_features, Tensor) else node_features[0]
         nodes_key_value = node_features if isinstance(node_features, Tensor) else node_features[1]
@@ -283,10 +279,10 @@ class GNNModel(torch.nn.Module):
         positions_key_value = node_positions if isinstance(node_positions, Tensor) else node_positions[1]
 
         if self.verbose:
-            printTensor('nodes_query (input)', nodes_query)
-            printTensor('nodes_key_value (input)', nodes_key_value)
-            printTensor('positions_query (input)', positions_query)
-            printTensor('positions_key_value (input)', positions_key_value)
+            printTensor(f'{self.verbosePrefix}nodes_query (input)', nodes_query)
+            printTensor(f'{self.verbosePrefix}nodes_key_value (input)', nodes_key_value)
+            printTensor(f'{self.verbosePrefix}positions_query (input)', positions_query)
+            printTensor(f'{self.verbosePrefix}positions_key_value (input)', positions_key_value)
 
         if self.use_encoder:
             nodes_query = self.input_node_encoder(nodes_query, inputPositions=positions_query)
@@ -295,22 +291,22 @@ class GNNModel(torch.nn.Module):
             else:
                 nodes_key_value = self.input_node_encoder(nodes_key_value, inputPositions=positions_key_value)
             if self.verbose:
-                printTensor('nodes_query (encoded)', nodes_query)
-                printTensor('nodes_key_value (encoded)', nodes_key_value)
+                printTensor(f'{self.verbosePrefix}nodes_query (encoded)', nodes_query)
+                printTensor(f'{self.verbosePrefix}nodes_key_value (encoded)', nodes_key_value)
 
         if self.use_edge_encoder:
             if edge_features is not None and edge_spatial_features is None:
                 if self.verbose:
-                    printTensor('edge_features (input)', edge_features)
+                    printTensor(f'{self.verbosePrefix}edge_features (input)', edge_features)
                 edge_features = self.input_edge_encoder(edge_features)
                 if self.verbose:
-                    printTensor('edge_features (encoded)', edge_features)
+                    printTensor(f'{self.verbosePrefix}edge_features (encoded)', edge_features)
             elif edge_features is None and edge_spatial_features is not None:
                 if self.verbose:
-                    printTensor('edge_spatial_features (input)', edge_spatial_features)
+                    printTensor(f'{self.verbosePrefix}edge_spatial_features (input)', edge_spatial_features)
                 edge_features = self.input_edge_encoder(edge_spatial_features)
                 if self.verbose:
-                    printTensor('edge_features (encoded)', edge_features)
+                    printTensor(f'{self.verbosePrefix}edge_features (encoded)', edge_features)
             else:
                 raise ValueError('Either edge_features or edge_spatial_features must be provided when use_edge_encoder is True.')
         else:
@@ -318,7 +314,7 @@ class GNNModel(torch.nn.Module):
                 edge_features = edge_spatial_features
         
         for i, layer in enumerate(self.message_passing_layers):
-            verbosePrint(f'\tPassing through message passing layer {i+1}/{self.hidden_layers}: query: {nodes_query.shape}, key/value: {nodes_key_value.shape}, edge: {edge_features.shape}.', self.verbose)
+            verbosePrint(f'{self.verbosePrefix}\tPassing through message passing layer {i+1}/{self.hidden_layers}: query: {nodes_query.shape}, key/value: {nodes_key_value.shape}, edge: {edge_features.shape}.', self.verbose)
 
             ans = layer(
                 queryTokens = nodes_query,
@@ -331,31 +327,31 @@ class GNNModel(torch.nn.Module):
                 windowValues = None,
             )
             if self.verbose:
-                printTensor(f'message passing output L{i+1}', ans)
+                printTensor(f'{self.verbosePrefix}message passing output L{i+1}', ans)
 
             if self.config.message_activation is not None:
-                verbosePrint(f'\tApplying message activation {self.config.message_activation} at layer {i+1}.', self.verbose)
+                verbosePrint(f'{self.verbosePrefix}\tApplying message activation {self.config.message_activation} at layer {i+1}.', self.verbose)
                 ans = self.message_activation(ans)
             if self.config.post_message_norm is not None and self.message_norms is not None and i < len(self.message_norms):
-                verbosePrint(f'\tApplying post-message normalization {self.config.post_message_norm} at layer {i+1}.', self.verbose)
+                verbosePrint(f'{self.verbosePrefix}\tApplying post-message normalization {self.config.post_message_norm} at layer {i+1}.', self.verbose)
                 ans = self.message_norms[i](ans)
             if self.config.message_skip_connections:
-                verbosePrint(f'\tUsing skip connection for message passing at layer {i+1}.', self.verbose)
+                verbosePrint(f'{self.verbosePrefix}\tUsing skip connection for message passing at layer {i+1}.', self.verbose)
                 if self.config.message_skip_projection and self.message_projs is not None and i < len(self.message_projs):
-                    verbosePrint(f'\t\tUsing projection for message passing skip connection at layer {i+1}.', self.verbose)
+                    verbosePrint(f'{self.verbosePrefix}\t\tUsing projection for message passing skip connection at layer {i+1}.', self.verbose)
                     ans = ans + self.message_projs[i](nodes_query)
                 else:
                     ans = ans + nodes_query
             if self.config.node_ffn and self.ffns is not None and i < len(self.ffns):
-                verbosePrint(f'\tApplying FFN at layer {i+1}.', self.verbose)
+                verbosePrint(f'{self.verbosePrefix}\tApplying FFN at layer {i+1}.', self.verbose)
                 ffn_out = self.ffns[i](ans)
                 if self.config.post_ffn_norm is not None and self.ffn_norms is not None and i < len(self.ffn_norms):
-                    verbosePrint(f'\tApplying post-FFN normalization {self.config.post_ffn_norm} at layer {i+1}.', self.verbose)
+                    verbosePrint(f'{self.verbosePrefix}\tApplying post-FFN normalization {self.config.post_ffn_norm} at layer {i+1}.', self.verbose)
                     ffn_out = self.ffn_norms[i](ffn_out)
                 if self.config.ffn_skip_connection:
-                    verbosePrint(f'\tUsing skip connection for FFN at layer {i+1}.', self.verbose)
+                    verbosePrint(f'{self.verbosePrefix}\tUsing skip connection for FFN at layer {i+1}.', self.verbose)
                     if self.config.ffn_skip_projection and self.ffn_projs is not None and i < len(self.ffn_projs):
-                        verbosePrint(f'\t\tUsing projection for FFN skip connection at layer {i+1}.', self.verbose)
+                        verbosePrint(f'{self.verbosePrefix}\t\tUsing projection for FFN skip connection at layer {i+1}.', self.verbose)
                         ans = ffn_out + self.ffn_projs[i](ans)
                     else:
                         ans = ffn_out + ans
@@ -363,8 +359,8 @@ class GNNModel(torch.nn.Module):
                     ans = ffn_out
 
             if self.verbose:
-                printTensor(f'output after layer L{i+1}', ans)
-            verbosePrint(f'\tDone message passing layer {i+1}/{self.hidden_layers}. Shape: {ans.shape}', self.verbose)
+                printTensor(f'{self.verbosePrefix}output after layer L{i+1}', ans)
+            verbosePrint(f'{self.verbosePrefix}\tDone message passing layer {i+1}/{self.hidden_layers}. Shape: {ans.shape}', self.verbose)
 
             if self.use_edge_encoder and self.message_edge_mlps is not None and edge_features is not None and i < len(self.message_edge_mlps):
 
@@ -384,9 +380,9 @@ class GNNModel(torch.nn.Module):
 
                 edge_features = newEdges
 
-                verbosePrint(f'\tUpdated edge features through edge MLP at layer {i+1}/{self.hidden_layers}. Shape: {edge_features.shape}', self.verbose)   
+                verbosePrint(f'{self.verbosePrefix}\tUpdated edge features through edge MLP at layer {i+1}/{self.hidden_layers}. Shape: {edge_features.shape}', self.verbose)   
                 if self.verbose:
-                    printTensor(f'edge features after edge MLP L{i+1}', edge_features)
+                    printTensor(f'{self.verbosePrefix}edge features after edge MLP L{i+1}', edge_features)
 
             nodes_query = ans
             if isinstance(node_features, Tensor):
@@ -399,11 +395,11 @@ class GNNModel(torch.nn.Module):
 
         if self.use_decoder:
             if self.verbose:
-                printTensor('nodes_query (pre-decoder)', nodes_query)
+                printTensor(f'{self.verbosePrefix}nodes_query (pre-decoder)', nodes_query)
             nodes_query = self.outputDecoder(nodes_query, inputPositions=positions_query)
             if self.verbose:
-                printTensor('nodes_query (decoded)', nodes_query)
-
+                printTensor(f'{self.verbosePrefix}nodes_query (decoded)', nodes_query)
+        verboseBannerPrint(f'{self.verbosePrefix}GNN forward pass complete.', self.verbose)
         return nodes_query
 
         

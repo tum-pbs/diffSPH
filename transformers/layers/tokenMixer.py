@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 
-from layers.layer_tokenEncoder import TokenEncoder, TokenEncoderConfig
+from layers.tokenEncoder import TokenEncoder, TokenEncoderConfig
 try:
     import torch_geometric
     from torch_geometric.utils import scatter, segment
@@ -14,20 +14,20 @@ except ImportError:
 from typing import Optional, Union, Tuple
  
 
-from .activation import getActivationLayer
-from .basisFunctions import basisEncoderLayer
-from .networkUtil import verbosePrint, verboseBannerPrint
-from .sparse import buildSparseTensor
-from .softmax import softmax
+from mlUtil.activation import getActivationLayer
+from mlUtil.basisFunctions import basisEncoderLayer
+from mlUtil.networkUtil import verbosePrint, verboseBannerPrint
+from mlUtil.sparse import buildSparseTensor
+from mlUtil.softmax import softmax
 # from .mlp import buildMLPwDict, getDefaultMLPDict
-from .layer_mlp import MLP, MLPConfig
-from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
-from .windows import getWindowFunction
+from .mlp import MLP, MLPConfig
+from .positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
+from mlUtil.windows import getWindowFunction
 from typing import Optional, Union, Tuple
 from dataclasses import dataclass, field
-from .networkUtil import shapeMatch, verbosePrintSpatialTensorStats, mergeConfigWithKwargs, checkTensorShape
+from mlUtil.networkUtil import shapeMatch, verbosePrintSpatialTensorStats, mergeConfigWithKwargs, checkTensorShape
 import copy
-from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape, BasisEncoderConfig
+from .positionEncoder import BasisEncoder, computeBasisEncoderOutputShape, BasisEncoderConfig
 
 
 def printTensor(name, tensor):
@@ -105,7 +105,7 @@ class TokenMixer(torch.nn.Module):
                  **kwargs
     ):
         super(TokenMixer, self).__init__()
-        verboseBannerPrint('Initializing Input Mix Layer...', verbose)
+        verboseBannerPrint(f'{verbosePrefix}Initializing Input Mix Layer...', verbose)
         if mlpConfig is None:
             raise ValueError('[DEBUG] mlpConfig must be provided.')
 
@@ -125,20 +125,20 @@ class TokenMixer(torch.nn.Module):
             self.encoder_output_dim = self.config.channel_encoder.token_output_dim if self.config.channel_encoder.token_output_dim is not None else self.config.transformer_features
             self.config.channel_encoder.token_input_dim = self.config.transformer_features
             self.config.channel_encoder.token_output_dim = self.encoder_output_dim
-            verbosePrint(f'Using channel encoder with input dimension {self.config.channel_encoder.token_input_dim} output dimension {self.config.channel_encoder.token_output_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrint(f'{self.verbosePrefix}Using channel encoder with input dimension {self.config.channel_encoder.token_input_dim} output dimension {self.config.channel_encoder.token_output_dim}', verbose)
 
             cfg = copy.deepcopy(self.config.channel_encoder)
 
             encoders = []
             if self.config.channel_encoder_shared:
-                verbosePrint(f'Using shared channel encoder for all {self.config.input_channels} channels', verbose, verbosePrefix=self.verbosePrefix+'\t')
-                encoder = TokenEncoder(token_input_dim=self.config.transformer_features, token_output_dim=cfg.token_output_dim, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+                verbosePrint(f'{self.verbosePrefix}Using shared channel encoder for all {self.config.input_channels} channels', verbose)
+                encoder = TokenEncoder(token_input_dim=self.config.transformer_features, token_output_dim=cfg.token_output_dim, verbose=verbose, verbosePrefix=self.verbosePrefix+'ChannelEncoder|\t\t')
                 encoders = [encoder for _ in range(self.config.input_channels)]
             else:
-                verbosePrint(f'Using separate channel encoder for each of the {self.config.input_channels} channels', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Using separate channel encoder for each of the {self.config.input_channels} channels', verbose)
                 for i in range(self.config.input_channels):
-                    verbosePrint(f'\tBuilding encoder for channel {i}', verbose, verbosePrefix=self.verbosePrefix+'\t')
-                    encoder = TokenEncoder(token_input_dim=self.config.transformer_features, token_output_dim=cfg.token_output_dim, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+                    verbosePrint(f'{self.verbosePrefix}\tBuilding encoder for channel {i}', verbose)
+                    encoder = TokenEncoder(token_input_dim=self.config.transformer_features, token_output_dim=cfg.token_output_dim, verbose=verbose, verbosePrefix=self.verbosePrefix+'ChannelEncoder|\t\t')
                     encoders.append(encoder)
 
             input_dim = self.encoder_output_dim
@@ -146,7 +146,7 @@ class TokenMixer(torch.nn.Module):
         if self.config.include_rpb or self.config.mode == 'cconv' and self.config.cconv_source == 'rpb':
             if self.config.rpb_feature_dim <= 0:
                 if self.config.basis_encoder is not None:
-                    self.basis_encoder = BasisEncoder(config=self.config.basis_encoder, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    self.basis_encoder = BasisEncoder(config=self.config.basis_encoder, verbose=verbose, verbosePrefix=self.verbosePrefix+'PositionBias|')
                     self.config.rpb_feature_dim = computeBasisEncoderOutputShape(self.config.basis_encoder)[-1]
                 else:
                     raise ValueError('TokenMixer: relative position bias is included, but rpb_feature_dim is 0')
@@ -160,38 +160,38 @@ class TokenMixer(torch.nn.Module):
             self.basis_encoder = None
 
         if self.config.channel_mixing:
-            verbosePrint(f'Channel mixing is enabled with operation {self.config.channel_mixing_operation}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrint(f'{self.verbosePrefix}Channel mixing is enabled with operation {self.config.channel_mixing_operation}', verbose)
             # if self.config.channel_mixing_operation not in ['add', 'multiply', 'concat', 'subtract', 'project', 'mean']:
                 # raise ValueError(f"TokenMixer: channel_mixing_operation must be one of 'add', 'multiply', 'concat', 'subtract', 'project' or 'mean', got {self.config.channel_mixing_operation}")
             if self.config.channel_mixing_operation == 'project':
-                verbosePrint(f'Using channel projection for mixing {self.config.input_channels} channels', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Using channel projection for mixing {self.config.input_channels} channels', verbose)
                 if self.config.channel_projection_out_features is None:
                     self.config.channel_projection_out_features = input_dim
                 if self.config.channel_projection_linear:
-                    verbosePrint(f'Using linear layer for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    verbosePrint(f'{self.verbosePrefix}Using linear layer for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose)
                     self.channel_mixing_layer = nn.Linear(self.config.input_channels * input_dim, self.config.channel_projection_out_features, bias = False)
                 else:
-                    verbosePrint(f'Using MLP for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                    verbosePrint(f'{self.verbosePrefix}Using MLP for channel projection [{self.config.input_channels} channels * {input_dim} features -> {self.config.channel_projection_out_features} features]', verbose)
                     # mlp_dict = self.config.channel_projection_mlp_dict
                     # if mlp_dict is None:
                         # mlp_dict = getDefaultMLPDict()
                     # self.channel_mixing_layer = buildMLPwDict(mlp_dict, inputDim=self.config.input_channels * input_dim, outputDim=self.config.channel_projection_out_features)
-                    self.channel_mixing_layer = MLP(in_features = self.config.input_channels * input_dim, out_features = self.config.channel_projection_out_features, config = self.mlpConfig, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t\t')
+                    self.channel_mixing_layer = MLP(in_features = self.config.input_channels * input_dim, out_features = self.config.channel_projection_out_features, config = self.mlpConfig, verbose=verbose, verbosePrefix=self.verbosePrefix+'ChannelEncoder|\t\t')
                     
                 input_dim = self.config.channel_projection_out_features
-                verbosePrint(f'Using channel projection with output features {self.config.channel_projection_out_features}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Using channel projection with output features {self.config.channel_projection_out_features}', verbose)
             elif self.config.channel_mixing_operation == 'concat':
                 input_dim = self.config.input_channels * input_dim
-                verbosePrint(f'Using channel concatenation, increasing input dimension to {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Using channel concatenation, increasing input dimension to {input_dim}', verbose)
             elif self.config.channel_mixing_operation == 'mean':
                 input_dim = input_dim
-                verbosePrint(f'Using channel mean, keeping input dimension {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Using channel mean, keeping input dimension {input_dim}', verbose)
             elif self.config.channel_mixing_operation in ['dot', 'scaled_dot', 'inner', 'cosine']:
                 input_dim = 1
-                verbosePrint(f'Using channel {self.config.channel_mixing_operation}, reducing input dimension to {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Using channel {self.config.channel_mixing_operation}, reducing input dimension to {input_dim}', verbose)
             else:
                 input_dim = input_dim
-                verbosePrint(f'Using channel {self.config.channel_mixing_operation}, keeping input dimension {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Using channel {self.config.channel_mixing_operation}, keeping input dimension {input_dim}', verbose)
 
 
         if not self.config.mode in ['add', 'multiply']:
@@ -199,29 +199,28 @@ class TokenMixer(torch.nn.Module):
                 if self.config.edge_feature_dim <= 0:
                     raise ValueError('TokenMixer: edge features are included, but edge_feature_dim is 0')
                 input_dim += self.config.edge_feature_dim
-                verbosePrint(f'Including edge features of dimension {self.config.edge_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Including edge features of dimension {self.config.edge_feature_dim}', verbose)
             if self.config.include_spatial:
                 if self.config.spatial_dim <= 0:
                     raise ValueError('TokenMixer: spatial information is included, but spatial_dim is 0')
                 input_dim += self.config.spatial_dim
-                verbosePrint(f'Including spatial information of dimension {self.config.spatial_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Including spatial information of dimension {self.config.spatial_dim}', verbose)
             if self.config.include_rpb:
                 input_dim += self.config.rpb_feature_dim
-                verbosePrint(f'Including relative position bias features of dimension {self.config.rpb_feature_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
-
+                verbosePrint(f'{self.verbosePrefix}Including relative position bias features of dimension {self.config.rpb_feature_dim}', verbose)
             if self.config.include_window:
                 if not self.config.include_spatial:
                     raise ValueError('TokenMixer: include_window is True, but include_spatial is False. Spatial information is needed to compute the window function.')
                 input_dim += 1
-                verbosePrint(f'Including window function in the mixing computation', verbose, verbosePrefix=self.verbosePrefix+'\t')
+                verbosePrint(f'{self.verbosePrefix}Including window function in the mixing computation', verbose)
 
-        verbosePrint(f'Input dimension to the token mixing: {input_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+        verbosePrint(f'{self.verbosePrefix}Input dimension to the token mixing: {input_dim}', verbose)
         self.input_dim = input_dim
 
         if self.config.mixing_out_features is None:
             self.config.mixing_out_features = self.config.transformer_features
         self.output_dim = self.config.mixing_out_features
-        verbosePrint(f'Output dimension of the token mixing: {self.output_dim}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+        verbosePrint(f'{self.verbosePrefix}Output dimension of the token mixing: {self.output_dim}', verbose)
 
         mixingLayers = []
         head_range = range(max(1,self.config.num_heads)) if self.config.per_head else range(1)
@@ -235,7 +234,7 @@ class TokenMixer(torch.nn.Module):
         if self.config.output_decoder is not None:
             self.config.output_decoder.token_input_dim = self.config.mixing_out_features
             self.config.output_decoder.token_output_dim = self.config.mixing_out_features
-            verbosePrint(f'Using output decoder with input and output dimension {self.config.mixing_out_features}', verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrint(f'{self.verbosePrefix}Using output decoder with input and output dimension {self.config.mixing_out_features}', verbose)
             self.outputDecoder = TokenEncoder(token_input_dim=self.config.output_decoder.token_input_dim, verbose=verbose, verbosePrefix=self.verbosePrefix+'\t')
 
         verboseBannerPrint('Done initializing Input Mix Layer.', verbose)
@@ -249,7 +248,7 @@ class TokenMixer(torch.nn.Module):
             # if mlp_dict is None:
                 # mlp_dict = getDefaultMLPDict()
 
-            verbosePrint('Building MLP mixing layer with config:', self.verbose, verbosePrefix=self.verbosePrefix+'\t')
+            verbosePrint(f'{self.verbosePrefix}Building MLP mixing layer with config:', self.verbose)
             # verbosePrint(str(mlp_dict), self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
             mixingLayer = MLP(in_features = self.input_dim, out_features = self.output_dim, config = self.mlpConfig, verbose=self.verbose, verbosePrefix=self.verbosePrefix+'\t\t')
             # mixingLayer = buildMLPwDict(mlp_dict, inputDim=self.input_dim, outputDim=self.output_dim)

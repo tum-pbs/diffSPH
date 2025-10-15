@@ -12,17 +12,17 @@ except ImportError:
 from typing import Optional, Union, Tuple
  
 
-from .activation import getActivationLayer
-from .basisFunctions import basisEncoderLayer
-from .networkUtil import verbosePrint, verboseBannerPrint, shapeMatch, checkTensorShape, mergeConfigWithKwargs
+from mlUtil.activation import getActivationLayer
+from mlUtil.basisFunctions import basisEncoderLayer
+from mlUtil.networkUtil import verbosePrint, verboseBannerPrint, shapeMatch, checkTensorShape, mergeConfigWithKwargs
 import copy
-from .sparse import buildSparseTensor
-from .softmax import softmax
+from mlUtil.sparse import buildSparseTensor
+from mlUtil.softmax import softmax
 # from .mlp import buildMLPwDict, getDefaultMLPDict
-from .layer_mlp import MLP, MLPConfig
-from .layer_positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
-from .windows import getWindowFunction
-from .softmax import softmax_
+from .mlp import MLP, MLPConfig
+from .positionEncoder import BasisEncoder, computeBasisEncoderOutputShape
+from mlUtil.windows import getWindowFunction
+from mlUtil.softmax import softmax_
 
 
 # This is the basic attention mechanism that computes the attention scores (after softmax and scaling)
@@ -73,8 +73,8 @@ from .softmax import softmax_
 
 from typing import Optional, Union, Tuple
 from dataclasses import dataclass, field
-from .layer_mixing import TokenMixer, TokenMixerConfig
-from .layer_positionEncoder import BasisEncoderConfig
+from .tokenMixer import TokenMixer, TokenMixerConfig
+from .positionEncoder import BasisEncoderConfig
 
 
 
