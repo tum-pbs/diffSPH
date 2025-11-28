@@ -468,7 +468,16 @@ def divergence_precomputed(
      
 from diffSPH.sphOperations.opUtil import custom_forwards, custom_backwards, evaluateKernel_, evaluateKernelGradient_, get_q
 
+def get_tensor(
+        t : Optional[torch.Tensor],
+) -> torch.Tensor:
+    if t is None: 
+        raise ValueError("Tensor to be accessed is None")
+    else:
+        return t
 
+
+@torch.jit.script
 def divergence_fn(
         supportScheme: SupportScheme,
         gradientMode: GradientMode,
@@ -518,16 +527,16 @@ def divergence_fn(
                 gradW_ij = torch.bmm(L_i, gradW_ij.unsqueeze(-1)).squeeze(-1)
 
                 
-        factor = m_j / rho_j if gradientMode != GradientMode.Symmetric else m_j * rho_i
+        factor = m_j / rho_j if gradientMode != GradientMode.Symmetric else m_j * get_tensor(rho_i)
         if consistentDivergence:
-            factor = m_j / rho_i if gradientMode != GradientMode.Symmetric else m_j * rho_i
+            factor = m_j / get_tensor(rho_i) if gradientMode != GradientMode.Symmetric else m_j * get_tensor(rho_i)
 
         if useApparentArea and apparentArea_b is not None:
             if consistentDivergence:
                 if gradientMode != GradientMode.Symmetric:
-                    factor = apparentArea_b[j] * rho_j / rho_i
+                    factor = apparentArea_b[j] * rho_j / get_tensor(rho_i)
                 else:
-                    factor = apparentArea_b[j] * rho_i * rho_j
+                    factor = apparentArea_b[j] * get_tensor(rho_i) * rho_j
 
         if q_ij is None:
             if gradientMode == GradientMode.Naive:
@@ -551,7 +560,7 @@ def divergence_fn(
                     else:
                         kq = divergence_op(q_j + q_i, gradW_ij, divergenceMode, x_ij, positiveDivergence)
                 elif gradientMode == GradientMode.Symmetric:
-                    qi = torch.einsum('n..., n -> n...', q_i, 1/ rho_i**2)
+                    qi = torch.einsum('n..., n -> n...', q_i, 1/ get_tensor(rho_i)**2)
                     qj = torch.einsum('n..., n -> n...', q_j, 1/ rho_j**2)
                     if supportScheme == SupportScheme.SuperSymmetric:
                         kq_i = divergence_op(qi, gradW_i, divergenceMode, x_ij, positiveDivergence)

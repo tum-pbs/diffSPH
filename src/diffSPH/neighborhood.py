@@ -211,7 +211,7 @@ from torch.profiler import record_function
 
 
 
-# @torch.jit.script
+@torch.jit.script
 def evalSparseNeighborhood(
         neighborhood: SparseNeighborhood,
         kernel: KernelType,
@@ -321,6 +321,7 @@ def evalDistanceTensor_2(
 
 
 
+# @torch.jit.script
 def evalSparseNeighborhood2(
         row: torch.Tensor, col: torch.Tensor,
 
@@ -932,35 +933,35 @@ def computeNeighborhoodStates(particles, sparseNeighborhood_, mode_str, kernel, 
         supports_a = actualNeigbors.points_a.supports.clone()
         supports_b = actualNeigbors.points_b.supports.clone()
 
-        use_checkpoint = False
-        if not use_checkpoint:
-            r_ij, x_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j, ddh_W_i, ddh_W_j = evalSparseNeighborhood2(
-            actualNeigbors.row, actualNeigbors.col,
-            positions_a, positions_b,
-            supports_a, supports_b,
-            actualNeigbors.domain.min, actualNeigbors.domain.max, actualNeigbors.domain.periodic,
-            kernel, gradientKernel, computeHessian, computeDkDh, only_j, True)
-        else:
-            r_ij, x_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j, ddh_W_i, ddh_W_j = checkpoint(evalSparseNeighborhood2,
-                actualNeigbors.row, actualNeigbors.col,
-                positions_a, positions_b,
-                supports_a, supports_b,
-                actualNeigbors.domain.min, actualNeigbors.domain.max, actualNeigbors.domain.periodic,
-                kernel, gradientKernel, computeHessian, computeDkDh, only_j, False, use_reentrant=False)
-        kernelValues = PrecomputedNeighborhood(
-            r_ij = r_ij,
-            x_ij = x_ij,
-            W_i = W_i,
-            W_j = W_j,
-            gradW_i = gradW_i,
-            gradW_j = gradW_j,
-            H_i = H_i,
-            H_j = H_j,
-            ddh_W_i = ddh_W_i,
-            ddh_W_j = ddh_W_j
-        )
+        # use_checkpoint = False
+        # if not use_checkpoint:
+        #     r_ij, x_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j, ddh_W_i, ddh_W_j = evalSparseNeighborhood2(
+        #     actualNeigbors.row, actualNeigbors.col,
+        #     positions_a, positions_b,
+        #     supports_a, supports_b,
+        #     actualNeigbors.domain.min, actualNeigbors.domain.max, actualNeigbors.domain.periodic,
+        #     kernel, gradientKernel, computeHessian, computeDkDh, only_j, True)
+        # else:
+        #     r_ij, x_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j, ddh_W_i, ddh_W_j = checkpoint(evalSparseNeighborhood2,
+        #         actualNeigbors.row, actualNeigbors.col,
+        #         positions_a, positions_b,
+        #         supports_a, supports_b,
+        #         actualNeigbors.domain.min, actualNeigbors.domain.max, actualNeigbors.domain.periodic,
+        #         kernel, gradientKernel, computeHessian, computeDkDh, only_j, False, use_reentrant=False)
+        # kernelValues = PrecomputedNeighborhood(
+        #     r_ij = r_ij,
+        #     x_ij = x_ij,
+        #     W_i = W_i,
+        #     W_j = W_j,
+        #     gradW_i = gradW_i,
+        #     gradW_j = gradW_j,
+        #     H_i = H_i,
+        #     H_j = H_j,
+        #     ddh_W_i = ddh_W_i,
+        #     ddh_W_j = ddh_W_j
+        # )
 
-        # kernelValues = evalSparseNeighborhood(actualNeigbors, kernel, gradientKernel, computeHessian, computeDkDh, only_j = only_j)
+        kernelValues = evalSparseNeighborhood(actualNeigbors, kernel, gradientKernel, computeHessian, computeDkDh, only_j = only_j)
 
     if not torch.any(particles.kinds > 0):
         sortedNeighbors = actualNeigbors

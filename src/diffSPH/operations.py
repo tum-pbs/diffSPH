@@ -400,7 +400,7 @@ def getCorrectionTerms(particles : Union[BasicState, CompressibleState, WeaklyCo
 
 
 
-# @torch.jit.script
+@torch.jit.script
 def SPHOperationCompiled(
     particles_a : Union[BasicState, CompressibleState, WeaklyCompressibleState],
     quantity : Optional[Union[torch.Tensor, Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]]],

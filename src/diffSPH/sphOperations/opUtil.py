@@ -151,10 +151,10 @@ def evaluateKernelGradient_(
             crkCorrection: bool,
             i: torch.Tensor, j: torch.Tensor,
             x_ij: torch.Tensor,
-            correctionTerm_A_i: torch.Tensor, correctionTerm_B_i: torch.Tensor,
-            correctionTerm_gradA_i: torch.Tensor, correctionTerm_gradB_i: torch.Tensor,
-            correctionTerm_A_j: torch.Tensor, correctionTerm_B_j: torch.Tensor,
-            correctionTerm_gradA_j: torch.Tensor, correctionTerm_gradB_j: torch.Tensor):
+            correctionTerm_A_i: Optional[torch.Tensor], correctionTerm_B_i: Optional[torch.Tensor],
+            correctionTerm_gradA_i: Optional[torch.Tensor], correctionTerm_gradB_i: Optional[torch.Tensor],
+            correctionTerm_A_j: Optional[torch.Tensor], correctionTerm_B_j: Optional[torch.Tensor],
+            correctionTerm_gradA_j: Optional[torch.Tensor], correctionTerm_gradB_j: Optional[torch.Tensor]):
     
     gradW_ij = evalPrecomputed((gradW_i, gradW_j), mode = supportScheme)
     if crkCorrection:

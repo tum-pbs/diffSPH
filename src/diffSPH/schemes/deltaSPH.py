@@ -71,8 +71,11 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
     
     verbosePrint(verbose, '[PESPH]\tNeighborsearch')
     with record_function("[deltaSPH] - 02 - Neighborsearch"):
+        # torch.cuda.synchronize()
         neighborhood, neighbors = evaluateNeighborhood(particles, domain, wrappedKernel, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood, computeHessian=config['neighborhood']['computeHessian'], computeDkDh=config['neighborhood']['computeDkDh'], only_j = config['neighborhood']['only_j'])
+        # torch.cuda.synchronize()
         particles.numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'noghost')).rowEntries
+        # torch.cuda.synchronize()
     
     if not hadDensity:
         verbosePrint(verbose, '[PESPH]\tDensity')
@@ -93,8 +96,10 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
         particles = enforceDirichlet(particles, config, SPHSystem.t, dt)    
         
     with record_function("[deltaSPH] - 04 - EOS"):
+        # torch.cuda.synchronize()
         particles.pressures = computeEOS_WC(particles, config)
         checkTensor(particles.pressures, domain.min.dtype, domain.min.device, 'pressure')
+        # torch.cuda.synchronize()
     
     checkTensor(particles.velocities, domain.min.dtype, domain.min.device, 'velocity (after Dirichlet)')
     checkTensor(particles.densities, domain.min.dtype, domain.min.device, 'density (after Dirichlet)')
@@ -106,33 +111,41 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
     checkTensor(particles.velocities, domain.min.dtype, domain.min.device, 'velocity (after boundary)')   
     
     with record_function("[deltaSPH] - 07 - Covariance Matrices"):
+        # torch.cuda.synchronize()
         particles.covarianceMatrices, particles.gradCorrectionMatrices, particles.eigenValues = computeCovarianceMatrices(particles, wrappedKernel, neighbors.get('normal'), SupportScheme.Scatter, config)
 
         checkTensor(particles.covarianceMatrices, domain.min.dtype, domain.min.device, 'covariance matrices')
         checkTensor(particles.gradCorrectionMatrices, domain.min.dtype, domain.min.device, 'correction matrices')
         checkTensor(particles.eigenValues, domain.min.dtype, domain.min.device, 'eigen values')
+        # torch.cuda.synchronize()
     with record_function("[deltaSPH] - 08 - Surface Detection"):
         if config.get('surfaceDetection', {}).get('active', False):
             fs, particles.surfaceMask, particles.surfaceNormals, lMin = surfaceDetection(particles, wrappedKernel, neighbors.get('normal'), SupportScheme.Gather, config, False)
 
     with record_function("[deltaSPH] - 09 - Density Diffusion"):
-        particles.gradRhoL = computeGradRhoL(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
+        # torch.cuda.synchronize()
+        with record_function("[deltaSPH] - 09.1 - Compute Density Gradients"):
+            particles.gradRhoL = computeGradRhoL(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
         # if torch.any(particles.kinds > 1):
         #     with record_function("[deltaSPH] - 09 - Boundary Density Diffusion"):
         #         particles.gradRhoL += computeGradRhoL(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config)
 
-        particles.gradRho = computeGradRho(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
+        # torch.cuda.synchronize()
+        with record_function("[deltaSPH] - 09.2 - Compute Density Gradient (denormalized)"):
+            particles.gradRho = computeGradRho(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
             
         checkTensor(particles.gradRhoL, domain.min.dtype, domain.min.device, 'density diffusion gradient')
         checkTensor(particles.gradRho, domain.min.dtype, domain.min.device, 'density gradient')
 
         # print(dvdt_diss.shape)
+        # torch.cuda.synchronize()
         drhodt_diss = computeDensityDeltaTerm(particles, wrappedKernel, neighbors.get('fluid'), SupportScheme.Gather, config)
         
         checkTensor(drhodt_diss, domain.min.dtype, domain.min.device, 'density diffusion')
     # if config.get('freeSurface', {}).get('active', False):
 
     with record_function("[deltaSPH] - 10 - Velocity Diffusion"):
+        # torch.cuda.synchronize()
         dvdt_diss = computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('fluid'), SupportScheme.Gather, config)
         if torch.any(particles.kinds > 1):
             with record_function("[deltaSPH] - 10 - Boundary Viscosity"):
@@ -142,11 +155,13 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
         checkTensor(dvdt_diss, domain.min.dtype, domain.min.device, 'viscosity diffusion')
     
     with record_function("[deltaSPH] - 11 - Divergence"):
+        # torch.cuda.synchronize()
         drhodt = computeMomentum(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
         checkTensor(drhodt, domain.min.dtype, domain.min.device, 'density divergence')
 
-    pressureAccel = computePressureForce(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
-    checkTensor(pressureAccel, domain.min.dtype, domain.min.device, 'pressure acceleration')
+    with record_function("[deltaSPH] - 12 - Pressure Force"):
+        pressureAccel = computePressureForce(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
+        checkTensor(pressureAccel, domain.min.dtype, domain.min.device, 'pressure acceleration')
 
 
     # noGhost = neighbors.get('noghost')

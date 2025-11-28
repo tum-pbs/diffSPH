@@ -27,8 +27,12 @@ try:
     import torchCompactRadius_cuda
     scatter_max_op = torch.ops.torchCompactRadius_cuda.scatter_max
 except ImportError:
-    # warnings.warn('No cuda version of the neighbor search is available.')
+    warnings.warn('No cuda version of the neighbor search is available. [ImportError]')
     pass
+except AttributeError:
+    warnings.warn('No cuda version of the neighbor search is available. [AttributeError]')
+    pass
+
 except Exception as e:
     raise e
 if scatter_max_op is None:

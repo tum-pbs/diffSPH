@@ -354,6 +354,15 @@ def gradient_op(
 ):
     return torch.einsum('n..., nd -> n...d', q, grad)
 
+def get_tensor(
+        t : Optional[torch.Tensor],
+) -> torch.Tensor:
+    if t is None: 
+        raise ValueError("Tensor to be accessed is None")
+    else:
+        return t
+
+@torch.jit.script
 def gradient_precomputed(
         positions_a : torch.Tensor,
         positions_b : torch.Tensor,
@@ -436,7 +445,7 @@ def gradient_precomputed(
 
         m_j = masses[1][j]
         rho_j = densities[1][j]
-        rho_i = densities[0][i]
+        rho_i = get_tensor(densities[0][i])
         gradW_ij = evalPrecomputed(gradW, mode = supportScheme)
         if correctionTerms is not None and KernelCorrectionScheme.CRKSPH.value in [c.value for c in correctionTerms]:
             gradW_ij = correctedKernelGradient_CRK(i, j, correctionTerm_A[0], correctionTerm_B[0], correctionTerm_gradA[0], correctionTerm_gradB[0], x_ij, (W_i + W_j)/2, (gradW_i + gradW_j)/2, False)
@@ -451,12 +460,12 @@ def gradient_precomputed(
             else:
                 gradW_ij = torch.bmm(L_i[i], gradW_ij.unsqueeze(-1)).squeeze(-1)
                 
-        factor = m_j / rho_j if gradientMode != GradientMode.Symmetric else m_j * rho_i
+        factor = m_j / rho_j if gradientMode != GradientMode.Symmetric else m_j * get_tensor(rho_i)
         if useApparentArea and apparentArea_b is not None:
             if gradientMode != GradientMode.Symmetric:
                 factor = apparentArea_b[j]
             else:
-                factor = apparentArea_b[j] * rho_i * rho_j
+                factor = apparentArea_b[j] * get_tensor(rho_i) * rho_j
 
 
         if quantity_ab is None:
@@ -480,7 +489,7 @@ def gradient_precomputed(
                     else:
                         kq = op(q_j + q_i, gradW_ij)
                 elif gradientMode == GradientMode.Symmetric:
-                    qi = torch.einsum('n..., n -> n...', q_i, 1/ rho_i**2)
+                    qi = torch.einsum('n..., n -> n...', q_i, 1/ get_tensor(rho_i)**2)
                     qj = torch.einsum('n..., n -> n...', q_j, 1/ rho_j**2)
                     if supportScheme == SupportScheme.SuperSymmetric:
                         kq_i = op(qi, gradW_i)
