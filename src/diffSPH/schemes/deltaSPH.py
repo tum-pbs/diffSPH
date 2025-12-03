@@ -24,7 +24,7 @@ from diffSPH.modules.gravity import computeGravity
 from diffSPH.modules.surfaceDetection import surfaceDetection
 from diffSPH.modules.pressureForce import computePressureForce
 from diffSPH.modules.eos import computeEOS_WC
-from diffSPH.modules.mDBC import mDBCDensity
+from diffSPH.modules.mDBC import mDBCDensity, mDBCPenetrationCheck
 from diffSPH.modules.sps import computeSPSTurbulence
 from diffSPH.boundary import computeBoundaryVelocities
 
@@ -106,8 +106,12 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
     checkTensor(particles.pressures, domain.min.dtype, domain.min.device, 'pressure (after Dirichlet)')
         
     if torch.any(particles.kinds > 0):
+        boundaryBodyVelocities = particles.velocities.clone()
+
         with record_function("[deltaSPH] - 06 - Boundary Velocities"):
-            particles.velocities = computeBoundaryVelocities(particles, wrappedKernel, neighbors.get('fluidToGhost'), SupportScheme.Scatter, config)
+            u_g, projectedVelocities = computeBoundaryVelocities(particles, wrappedKernel, neighbors.get('fluidToGhost'), SupportScheme.Scatter, config)
+
+            particles.velocities = u_g
     checkTensor(particles.velocities, domain.min.dtype, domain.min.device, 'velocity (after boundary)')   
     
     with record_function("[deltaSPH] - 07 - Covariance Matrices"):
@@ -149,13 +153,17 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
         dvdt_diss = computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('fluid'), SupportScheme.Gather, config)
         if torch.any(particles.kinds > 1):
             with record_function("[deltaSPH] - 10 - Boundary Viscosity"):
+                config['diffusion']['switch'] = False
                 if 'boundary' not in config['diffusion'] or config['diffusion']['boundary'] > 0.:
-                    dvdt_diss += computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config, alphaOverride=config['diffusion'].get('boundary', None))
-                    # print(f'[deltaSPH] - [Update] - Boundary viscosity: {config["diffusion"].get("boundary", None)}')
+                    particles.velocities = 0*boundaryBodyVelocities
+                    dvdt_diss = computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config, alphaOverride=config['diffusion'].get('boundary', None))
+                    print(f'[deltaSPH] - [Update] - Boundary viscosity: {config["diffusion"].get("boundary", None)}')
+                config['diffusion']['switch'] = True
         checkTensor(dvdt_diss, domain.min.dtype, domain.min.device, 'viscosity diffusion')
     
     with record_function("[deltaSPH] - 11 - Divergence"):
         # torch.cuda.synchronize()
+        particles.velocities = 1*boundaryBodyVelocities
         drhodt = computeMomentum(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
         checkTensor(drhodt, domain.min.dtype, domain.min.device, 'density divergence')
 
@@ -178,10 +186,13 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
     forcing = applyForcing(particles, config, SPHSystem.t, dt)
     # spsTerm = computeSPSTurbulence(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
 
+    nopenShift = mDBCPenetrationCheck(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config) / dt
+
     update = WeaklyCompressibleUpdate(
-        positions=particles.velocities,
-        velocities=pressureAccel + gravityAccel + forcing + dvdt_diss,
+        positions=particles.velocities + nopenShift * dt *0,
+        velocities= pressureAccel + gravityAccel + forcing + dvdt_diss + nopenShift,
         densities=drhodt + drhodt_diss,
+        # densities = torch.zeros_like(particles.densities),
         passive = torch.zeros(particles.velocities.shape[0], dtype = torch.bool, device = particles.velocities.device),
     )
 

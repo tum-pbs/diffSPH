@@ -235,6 +235,7 @@ from typing import Dict
 from diffSPH.neighborhood import SparseCOO
 from typing import Union, Tuple, Dict
 from diffSPH.neighborhood import SparseNeighborhood, PrecomputedNeighborhood, SupportScheme
+from diffSPH.operations import sph_op, SPHOperation
 
 def computeBoundaryVelocities(
     particleState: WeaklyCompressibleState, 
@@ -256,6 +257,48 @@ def computeBoundaryVelocities(
     kinds = [region['kind'] for region in boundaryRegions]
     ghostMask = particleState.kinds == 2
     neighCounts = coo_to_csr(neighborhood[0]).rowEntries[ghostMask]
+
+
+    qVel = SPHOperation(
+        particleState,
+        quantity = particleState.velocities,
+        kernel = kernel,
+        neighborhood = neighborhood[0],
+        kernelValues = neighborhood[1],
+        operation=Operation.Interpolate,
+        supportScheme = supportScheme,
+    )
+    shepValue = SPHOperation(
+        particleState,
+        quantity = torch.ones_like(particleState.densities),
+        kernel = kernel,
+        neighborhood = neighborhood[0],
+        kernelValues = neighborhood[1],
+        operation=Operation.Interpolate,
+        supportScheme = supportScheme,
+    )
+    qVel = qVel / (shepValue.view(-1,1) + 1e-7)
+
+    bodyVelocity = particleState.velocities
+
+    bIndices = particleState.ghostIndices[particleState.kinds == 2]
+
+    u_g = 2 * bodyVelocity - qVel
+
+    r_ib = torch.linalg.norm(particleState.ghostOffsets, dim = -1)
+    n_b = particleState.ghostOffsets / (r_ib.view(-1,1) + 1e-7)
+
+    projected_vels = u_g - torch.einsum('nd, nd -> n', u_g, n_b).view(-1,1) * n_b
+
+    boundaryVelocities = particleState.velocities.clone()
+    boundaryVelocities[bIndices] = u_g[ghostMask]
+
+    projectedVelocities = particleState.velocities.clone()
+    projectedVelocities[bIndices] = projected_vels[ghostMask]
+
+    return boundaryVelocities, projectedVelocities
+
+
 
     if 'extend' in kinds or 'project' in kinds or 'free-slip' in kinds or 'no-slip' in kinds:        
         q_velsL = []

@@ -197,5 +197,6 @@ images/
 
 **/simulations/
 **/export/
+**/output/
 *.pt
 *.h5

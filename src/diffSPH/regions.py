@@ -235,7 +235,7 @@ def initializeWeaklyCompressibleState(regions, config, verbose = True):
     particleState = WeaklyCompressibleState(
         positions,
         supports = supports,
-        masses = masses,
+        masses = masses * config.get('fluid',{}).get('rho0', 1),
         
         densities = densities,
         velocities = velocities,
