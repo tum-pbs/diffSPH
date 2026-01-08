@@ -211,7 +211,7 @@ from torch.profiler import record_function
 
 
 
-@torch.jit.script
+# @torch.jit.script
 def evalSparseNeighborhood(
         neighborhood: SparseNeighborhood,
         kernel: KernelType,
@@ -960,8 +960,9 @@ def computeNeighborhoodStates(particles, sparseNeighborhood_, mode_str, kernel, 
         #     ddh_W_i = ddh_W_i,
         #     ddh_W_j = ddh_W_j
         # )
-
-        kernelValues = evalSparseNeighborhood(actualNeigbors, kernel, gradientKernel, computeHessian, computeDkDh, only_j = only_j)
+        kernelValues = checkpoint(evalSparseNeighborhood,
+            actualNeigbors, kernel, gradientKernel, computeHessian, computeDkDh, only_j, use_reentrant=False)
+        # kernelValues = evalSparseNeighborhood(actualNeigbors, kernel, gradientKernel, computeHessian, computeDkDh, only_j = only_j)
 
     if not torch.any(particles.kinds > 0):
         sortedNeighbors = actualNeigbors

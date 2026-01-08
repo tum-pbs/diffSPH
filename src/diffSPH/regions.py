@@ -40,19 +40,25 @@ def sampleParticles(config, sdfs = [], minExtent = None, maxExtent = None, filte
         distances = particlesA.masses.new_ones(particlesA.masses.shape) * np.inf
     return particlesA, mask, distances
 
-def buildRegion(sdf, config, ngrid = 255, kind : str = 'zero', type : str = 'fluid', dirichletValues = {}, updateValues = {}, bufferValues = [], initialConditions = {}):
+def buildRegion(sdf, config, ngrid = 255, kind : str = 'zero', type : str = 'fluid', dirichletValues = {}, updateValues = {}, bufferValues = [], initialConditions = {}, minOrMax = 'min'):
     if config['domain'].dim == 2:
         Lx = config['domain'].max[0] - config['domain'].min[0]
         Ly = config['domain'].max[1] - config['domain'].min[1]
-        minL = min(Lx, Ly)
+        if minOrMax == 'min':
+            minL = min(Lx, Ly)
+        else:
+            minL = max(Lx, Ly)
+            
         dL = minL / ngrid
         nx = (Lx//dL).to(torch.int32).cpu().item()
         ny = (Ly//dL).to(torch.int32).cpu().item()
 
         # print(nx, ny, ngrid)
 
-        x = torch.linspace(config['domain'].min[0]-Lx * 0.01, config['domain'].max[0] + Lx*0.01, nx, dtype = torch.float32)
-        y = torch.linspace(config['domain'].min[1]-Ly * 0.01, config['domain'].max[1] + Ly*0.01, ny, dtype = torch.float32)
+        # x = torch.linspace(config['domain'].min[0]-Lx * 0.01, config['domain'].max[0] + Lx*0.01, nx, dtype = torch.float32)
+        # y = torch.linspace(config['domain'].min[1]-Ly * 0.01, config['domain'].max[1] + Ly*0.01, ny, dtype = torch.float32)
+        x = torch.linspace(config['domain'].min[0], config['domain'].max[0], nx, dtype = torch.float32)
+        y = torch.linspace(config['domain'].min[1], config['domain'].max[1], ny, dtype = torch.float32)
         X, Y = torch.meshgrid(x, y, indexing = 'ij')
         P = torch.stack([X,Y], dim=-1)
         domain = config['domain']

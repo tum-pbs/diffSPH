@@ -74,7 +74,7 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
         # torch.cuda.synchronize()
         neighborhood, neighbors = evaluateNeighborhood(particles, domain, wrappedKernel, verletScale = config['neighborhood']['verletScale'], mode = SupportScheme.SuperSymmetric, priorNeighborhood=neighborhood, computeHessian=config['neighborhood']['computeHessian'], computeDkDh=config['neighborhood']['computeDkDh'], only_j = config['neighborhood']['only_j'])
         # torch.cuda.synchronize()
-        particles.numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'noghost')).rowEntries
+        particles.numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'fluid')).rowEntries
         # torch.cuda.synchronize()
     
     if not hadDensity:
@@ -90,6 +90,8 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
         with record_function("[deltaSPH] - 03 - mDBC"):
             particles.densities,_ = mDBCDensity(particles, wrappedKernel, neighbors.get('fluidToGhost'), SupportScheme.Scatter, config)
     checkTensor(particles.densities, domain.min.dtype, domain.min.device, 'density (aftert mdbc)')
+    particles.numNeighbors = coo_to_csr(filterNeighborhoodByKind(particles, neighbors.neighbors, which = 'noghost')).rowEntries
+        # torch.cuda.synchronize()
         # print('Density already computed', particles.densities)
         
     with record_function("[deltaSPH] - 05 - Dirichlet BC"):
@@ -143,7 +145,7 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
 
         # print(dvdt_diss.shape)
         # torch.cuda.synchronize()
-        drhodt_diss = computeDensityDeltaTerm(particles, wrappedKernel, neighbors.get('fluid'), SupportScheme.Gather, config)
+        drhodt_diss = computeDensityDeltaTerm(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
         
         checkTensor(drhodt_diss, domain.min.dtype, domain.min.device, 'density diffusion')
     # if config.get('freeSurface', {}).get('active', False):
@@ -153,17 +155,18 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
         dvdt_diss = computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('fluid'), SupportScheme.Gather, config)
         if torch.any(particles.kinds > 1):
             with record_function("[deltaSPH] - 10 - Boundary Viscosity"):
-                config['diffusion']['switch'] = False
+                # config['diffusion']['switch'] = False
                 if 'boundary' not in config['diffusion'] or config['diffusion']['boundary'] > 0.:
-                    particles.velocities = 0*boundaryBodyVelocities
+                    particles.velocities = projectedVelocities
                     dvdt_diss = computeViscosity_deltaSPH_inviscid(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config, alphaOverride=config['diffusion'].get('boundary', None))
-                    print(f'[deltaSPH] - [Update] - Boundary viscosity: {config["diffusion"].get("boundary", None)}')
-                config['diffusion']['switch'] = True
+                    # print(f'[deltaSPH] - [Update] - Boundary viscosity: {config["diffusion"].get("boundary", None)}')
+                # config['diffusion']['switch'] = True
         checkTensor(dvdt_diss, domain.min.dtype, domain.min.device, 'viscosity diffusion')
     
     with record_function("[deltaSPH] - 11 - Divergence"):
         # torch.cuda.synchronize()
-        particles.velocities = 1*boundaryBodyVelocities
+        if torch.any(particles.kinds > 0):
+            particles.velocities = 1*boundaryBodyVelocities
         drhodt = computeMomentum(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
         checkTensor(drhodt, domain.min.dtype, domain.min.device, 'density divergence')
 
@@ -186,10 +189,12 @@ def deltaPlusSPHScheme(SPHSystem, dt, config, verbose = False):
     forcing = applyForcing(particles, config, SPHSystem.t, dt)
     # spsTerm = computeSPSTurbulence(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config)
 
-    nopenShift = mDBCPenetrationCheck(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config) / dt
-
+    if torch.any(particles.kinds > 0):
+        nopenShift = mDBCPenetrationCheck(particles, wrappedKernel, neighbors.get('boundaryToFluid'), SupportScheme.Gather, config) / dt * 0
+    else:
+        nopenShift = torch.zeros_like(particles.velocities)
     update = WeaklyCompressibleUpdate(
-        positions=particles.velocities + nopenShift * dt *0,
+        positions=particles.velocities,# + nopenShift * dt *0,
         velocities= pressureAccel + gravityAccel + forcing + dvdt_diss + nopenShift,
         densities=drhodt + drhodt_diss,
         # densities = torch.zeros_like(particles.densities),

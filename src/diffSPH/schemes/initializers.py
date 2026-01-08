@@ -150,7 +150,7 @@ def updateBodyParticlesWCSPH(particleState, rigidBody: RigidBody):
         updatedVelocities[rigidBody.ghostParticleIndices] = particleVelocities
 
     updatedOffsets = particleState.ghostOffsets.clone()
-    updatedOffsets[rigidBody.ghostParticleIndices] = offsets
+    updatedOffsets[rigidBody.particleIndices] = offsets
     updatedOffsets[rigidBody.ghostParticleIndices] = offsets
 
     return WeaklyCompressibleState(

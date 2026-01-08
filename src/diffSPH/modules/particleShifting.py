@@ -67,7 +67,7 @@ def solveShifting(SPHSystem, dt, config, verbose = False):
             with record_function("[SPH] - [Shifting] - Surface Detection"):
                 particles.covarianceMatrices = None
                 if freeSurface:
-                    fs, fsMask, n, lMin = surfaceDetection(particles, wrappedKernel, neighbors.get('fluid'), SupportScheme.Gather, config, True)
+                    fs, fsMask, n, lMin = surfaceDetection(particles, wrappedKernel, neighbors.get('noghost'), SupportScheme.Gather, config, True)
                 else:
                     fs = fsMask = n = lMin = None
 

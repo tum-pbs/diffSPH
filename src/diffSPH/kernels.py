@@ -747,9 +747,9 @@ def Kernel_Gradient(kernel: KernelType, x: torch.Tensor, h: torch.Tensor):
     r = vectorNorm(x)
     # r = checkpoint(vectorNorm, x)
     q = r / h
-    grad = vectorNormalize(x)
+    # grad = vectorNormalize(x)
     # grad = checkpoint(vectorNormalize, x)
-    # grad = torch.nn.functional.normalize(x, dim = -1)
+    grad = torch.nn.functional.normalize(x, dim = -1)
     normalizationTerm = eval_C_d(kernel, dim) / h**(dim + 1)
     kernelTerm = eval_dkdq(kernel, q, dim)
     normalizedKernelTerm = kernelTerm * normalizationTerm

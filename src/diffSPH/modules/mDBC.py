@@ -18,6 +18,7 @@ def mDBCDensity_(particles: WeaklyCompressibleState,
         neighborhood: Tuple[SparseNeighborhood, PrecomputedNeighborhood],
         rho0: float,
         c_s: float,
+        gravity: torch.Tensor,
         neighCounts: torch.Tensor,
         supportScheme: SupportScheme = SupportScheme.Scatter,
         clampDensity: bool = True):
@@ -155,7 +156,7 @@ def mDBCDensity_(particles: WeaklyCompressibleState,
                 bIndices = access_optional(particles.ghostIndices, ghostMask)
                 boundaryDensity = torch.ones(numPtcls, dtype = dtype, device = device) * restDensity
                 boundaryDensity[bIndices] = torch.where(neighCounts > 0, shepardDensity[ghostMask], restDensity) #/ restDensity
-                threshold = 5
+                threshold = 9
 
                 assert torch.all(particles.kinds[bIndices] == 1)
                 assert torch.all(shepardDensity[~ghostMask] == rho0)
@@ -189,7 +190,7 @@ def mDBCDensity_(particles: WeaklyCompressibleState,
                 P_g = c_0**2 * (rho_g - rho_0)
                 
 
-                g = torch.tensor([0., -9.81], dtype = dtype, device = device)
+                g = gravity
                 nb = -relPos
                 # This normalization is not in the paper https://www.sciencedirect.com/science/article/pii/S0045793025003305?via%3Dihub
                 # But it is correct, see the dualsphysics code and thanks Aaron!
@@ -208,10 +209,12 @@ def mDBCDensity_(particles: WeaklyCompressibleState,
                 rho_b = rho_0 + P_b / c_0**2
 
                 # rho_b /= rho_0
+                boundaryDensity[bIndices] = rho_b
+                
+                boundaryDensity[bIndices] = torch.where(neighCounts > threshold, (res[:,0] - torch.einsum('nu, nu -> n',(relPos), res[:, 1:] )), boundaryDensity[bIndices])
 
-                # boundaryDensity[bIndices] = torch.where(neighCounts > threshold, (res[:,0] - torch.einsum('nu, nu -> n',(relPos), res[:, 1:] )), boundaryDensity[bIndices])
-
-                boundaryDensity[bIndices] = torch.where(neighCounts > threshold, rho_b, boundaryDensity[bIndices])
+                # boundaryDensity[bIndices] = torch.where(neighCounts > threshold, rho_b, boundaryDensity[bIndices])
+                
                 
                 # boundaryDensity[bIndices] = torch.where(neighCounts == 0, restDensity, boundaryDensity[bIndices])
                 # if clampDensity:ffmp
@@ -251,12 +254,15 @@ def mDBCDensity(particles: Union[CompressibleState, WeaklyCompressibleState],
     rho0 = config['fluid']['rho0']
     c_s = config['fluid']['c_s']
 
+    gravity = torch.tensor(config['gravity']['direction'], dtype = particles.positions.dtype, device = particles.positions.device) * config['gravity']['magnitude']
+
     with record_function("[SPH] - [mDBC] - density"):
         return mDBCDensity_(
             particles,
             neighborhood,
             rho0,
             c_s,
+            gravity,
             neighCounts,
             supportScheme,
             clampDensity
@@ -311,15 +317,15 @@ def mDBCPenetrationCheck(particles: Union[CompressibleState, WeaklyCompressibleS
 
     check_c = torch.einsum('ni, ni -> n', particles.velocities[fluidIndices] - particles.velocities[boundaryIndices], boundaryNormal) < 0.0
 
-    print(f'[mDBC] - Total checks: {check_a.shape[0]}')
-    print(f'[mDBC] - Check A (r_ib > 1.25 * n_b): {torch.sum(check_a).item()} [check_a shape: {check_a.shape}]')
-    print(f'[mDBC] - Check B (dot(x_ib, n_b) > 0.75 * n_b): {torch.sum(check_b).item()} [check_b shape: {check_b.shape}]')
+    # print(f'[mDBC] - Total checks: {check_a.shape[0]}')
+    # print(f'[mDBC] - Check A (r_ib > 1.25 * n_b): {torch.sum(check_a).item()} [check_a shape: {check_a.shape}]')
+    # print(f'[mDBC] - Check B (dot(x_ib, n_b) > 0.75 * n_b): {torch.sum(check_b).item()} [check_b shape: {check_b.shape}]')
     # print(f'[mDBC] - Check C (dot(v_i - v_b, n_b) > 0): {torch.sum(check_c).item()} [check_c shape: {check_c.shape}]')
 
     check_ab = torch.logical_and(check_a, check_b)
     check_abc = torch.logical_and(check_ab, check_c)
 
-    print(f'[mDBC] - Check AB (A and B): {torch.sum(check_ab).item()}')
+    # print(f'[mDBC] - Check AB (A and B): {torch.sum(check_ab).item()}')
     # print(f'[mDBC] - Check ABC (A and B and C): {torch.sum(check_abc).item()}')
 
     # penetrationMask = torch.logical_and(
@@ -375,17 +381,17 @@ def mDBCPenetrationCheck(particles: Union[CompressibleState, WeaklyCompressibleS
         # ratio = torch.ones_like(ratio) *0.25
         factor = - 4 * ratio + 3
 
-        nopenshiftTerm = -factor * dv# * norm * norm
+        nopenshiftTerm = -factor * dv * norm * norm
         if torch.sum(mask_b) == 0:
-            print(f'[mDBC] - Direction {d}: No penetration corrections applied.')
+            # print(f'[mDBC] - Direction {d}: No penetration corrections applied.')
             continue
-        print(f'[mDBC] - Direction {d}: Applying {torch.sum(mask_b).item()} penetration corrections.')
-        print(f'[mDBC] - Direction {d}: Max correction magnitude: {torch.max(nopenshiftTerm[mask_b].abs()).item():.6f}')
-        print(f'[mDBC] - Direction {d}: Avg correction magnitude: {torch.mean(nopenshiftTerm[mask_b].abs()).item():.6f}')
-        print(f'[mDBC] - dv: max {torch.max(dv[mask_b]).item():.6f}, min {torch.min(dv[mask_b]).item():.6f}, mean {torch.mean(dv[mask_b]).item():.6f}')
-        print(f'[mDBC] - norm: max {torch.max(norm[mask_b]).item():.6f}, min {torch.min(norm[mask_b]).item():.6f}, mean {torch.mean(norm[mask_b]).item():.6f}')
-        print(f'[mDBC] - ratio: max {torch.max(ratio[mask_b]).item():.6f}, min {torch.min(ratio[mask_b]).item():.6f}, mean {torch.mean(ratio[mask_b]).item():.6f}')
-        print(f'[mDBC] - factor: max {torch.max(factor[mask_b]).item():.6f}, min {torch.min(factor[mask_b]).item():.6f}, mean {torch.mean(factor[mask_b]).item():.6f}')
+        # print(f'[mDBC] - Direction {d}: Applying {torch.sum(mask_b).item()} penetration corrections.')
+        # print(f'[mDBC] - Direction {d}: Max correction magnitude: {torch.max(nopenshiftTerm[mask_b].abs()).item():.6f}')
+        # print(f'[mDBC] - Direction {d}: Avg correction magnitude: {torch.mean(nopenshiftTerm[mask_b].abs()).item():.6f}')
+        # print(f'[mDBC] - dv: max {torch.max(dv[mask_b]).item():.6f}, min {torch.min(dv[mask_b]).item():.6f}, mean {torch.mean(dv[mask_b]).item():.6f}')
+        # print(f'[mDBC] - norm: max {torch.max(norm[mask_b]).item():.6f}, min {torch.min(norm[mask_b]).item():.6f}, mean {torch.mean(norm[mask_b]).item():.6f}')
+        # print(f'[mDBC] - ratio: max {torch.max(ratio[mask_b]).item():.6f}, min {torch.min(ratio[mask_b]).item():.6f}, mean {torch.mean(ratio[mask_b]).item():.6f}')
+        # print(f'[mDBC] - factor: max {torch.max(factor[mask_b]).item():.6f}, min {torch.min(factor[mask_b]).item():.6f}, mean {torch.mean(factor[mask_b]).item():.6f}')
 
         nopenshift[:,d] += torch.where(
             mask_b,
@@ -413,11 +419,11 @@ def mDBCPenetrationCheck(particles: Union[CompressibleState, WeaklyCompressibleS
     nopencountb = scatter_sum(nopen_mask_b.int(), fluidIndices, dim = 0, dim_size = particles.positions.shape[0])
     nopencountc = scatter_sum(nopen_mask_c.int(), fluidIndices, dim = 0, dim_size = particles.positions.shape[0])
 
-    avgShift = nopenshift / (nopencount.float() + 1e-12)
-    print('-' * 40)
-    print(f'[mDBC] - Total penetration corrections applied: {torch.sum(nopencount > 0).item()} [{torch.sum(nopencounta > 0).item()} / {torch.sum(nopencountb > 0).item()} / {torch.sum(nopencountc > 0).item()}] / {particles.positions.shape[0]}')
-    print(f'[mDBC] - Average penetration correction magnitude: {torch.mean(torch.linalg.norm(avgShift[nopencount > 0], dim = 0)).item():.6f}')
-    print(f'[mDBC] - Max penetration correction magnitude: {torch.max(torch.linalg.norm(avgShift[nopencount > 0], dim = 0)).item():.6f}')
+    avgShift = nopenshift / (nopencount.float() + 1e-12) * 2
+    # print('-' * 40)
+    # print(f'[mDBC] - Total penetration corrections applied: {torch.sum(nopencount > 0).item()} [{torch.sum(nopencounta > 0).item()} / {torch.sum(nopencountb > 0).item()} / {torch.sum(nopencountc > 0).item()}] / {particles.positions.shape[0]}')
+    # print(f'[mDBC] - Average penetration correction magnitude: {torch.mean(torch.linalg.norm(avgShift[nopencount > 0], dim = 0)).item():.6f}')
+    # print(f'[mDBC] - Max penetration correction magnitude: {torch.max(torch.linalg.norm(avgShift[nopencount > 0], dim = 0)).item():.6f}')
 
 
 
