@@ -173,10 +173,13 @@ def waveEquation2(
         gradientMode = gradientMode,
         laplacianMode = laplacianMode
     )
-    if isinstance(waveState.c, torch.Tensor):
-        return waveState.v, waveState.c**2 * laplacian_u
-    else:
-        return waveState.v, waveState.c**2 * laplacian_u
+    
+    # Apply PML-style damping to the derivatives
+    # This absorbs waves more effectively than post-integration damping
+    dudt = waveState.v
+    dvdt = waveState.c**2 * laplacian_u - waveState.damping * waveState.v
+    
+    return dudt, dvdt
     
 
 # def integrateState(time : float, dt : float, state: WaveEquationState, 

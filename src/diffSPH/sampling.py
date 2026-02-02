@@ -362,7 +362,7 @@ def sampleOptimal(nx, domain, targetNeighbors, kernel, jitter = 0.1, shiftIters 
                      'computeMach': False,
                      'summationDensity': True,
                     'solverThreshold': 0.5 * particleDx},
-        'neighborhood': {'verletScale': 1.4, 'targetNeighbors': targetNeighbors},
+        'neighborhood': {'verletScale': 1.4, 'targetNeighbors': targetNeighbors, 'computeDkDh': True, 'computeHessian': True},
     }
 
     neighborhood = None
