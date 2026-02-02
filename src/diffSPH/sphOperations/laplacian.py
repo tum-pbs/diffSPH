@@ -629,6 +629,8 @@ from diffSPH.util import KernelTerms
 # from diffSPH.neighborhood 
 from diffSPH.sphOperations.opUtil import evalSupport, evalPrecomputed, get_qi, get_qj, get_qs, correctedKernel_CRK, correctedKernelGradient_CRK
 
+
+
 def laplacian_precomputed(
         positions_a : torch.Tensor,
         positions_b : torch.Tensor,
@@ -804,6 +806,66 @@ def laplacian_precomputed(
 from diffSPH.sphOperations.opUtil import custom_forwards, custom_backwards, evaluateKernel_, evaluateKernelGradient_, get_q
 
 
+# from dataclasses import dataclass
+
+# @dataclass 
+# class ParticleProperties:
+#     quantities: Optional[torch.Tensor] # q[i]
+#     densities: Optional[torch.Tensor] # rho[i]
+#     supports: Optional[torch.Tensor] # h[i]
+
+#     # Information for grad h correction
+#     omegas: Optional[torch.Tensor] # omega[i], used for grad h correction
+
+#     # Information for gradient renormalization near free surfaces
+#     gradientRenormalizationMatrix: Optional[torch.Tensor] # L[i]
+
+#     # Information for CRK correction of first order
+#     CRK_correction_A: Optional[torch.Tensor] # A[i]
+#     CRK_correction_B: Optional[torch.Tensor] # B[i]
+#     CRK_gradientCorrection_A: Optional[torch.Tensor] # gradA[i]
+#     CRK_gradientCorrection_B: Optional[torch.Tensor] # gradB[i]
+
+# @dataclass
+# class NeighborhoodProperties:
+#     # neighborhood
+#     i : torch.Tensor
+#     j : torch.Tensor
+    
+#     numRows: int
+#     numCols: int
+
+#     relativeQuantities: Optional[torch.Tensor] # q_ij
+
+#     relativePositions: torch.Tensor # x_ij
+#     relativeDistances: torch.Tensor # r_ij
+
+#     # Kernel Values
+#     W_i: torch.Tensor
+#     W_j: torch.Tensor
+
+#     # Kernel Gradients
+#     gradW_i: torch.Tensor
+#     gradW_j: torch.Tensor
+
+#     # Hessians
+#     H_i: Optional[torch.Tensor]
+#     H_j: Optional[torch.Tensor]
+
+# @dataclass
+# class ArgumentWrapper:
+#     supportScheme: SupportScheme
+#     gradientMode: GradientMode
+
+#     crkCorrection: bool # use CRKSPH corrections
+#     gradientCorrection: bool # L_i gradient renormalization
+#     omegaCorrection: bool # grad-h support
+
+#     particlesA: ParticleProperties
+#     particlesB: ParticleProperties
+
+#     neighborInformation: NeighborhoodProperties
+
 
 def laplacian_fn(
         supportScheme: SupportScheme,
@@ -905,6 +967,8 @@ def laplacian_fn(
                 fkq = torch.einsum('n..., n -> n...', fq, laplacian_ij)
             # print("Something", laplacian_ij, fq, fkq)
         elif laplacianMode == LaplacianMode.Brookshaw:
+            # print(f'Brookshaw Laplacian')
+            # print(f'h_i: {h_i}, x_ij: {x_ij}, r_ij: {r_ij}, gradW_ij: {gradW_ij}')
             F_ab = torch.einsum('nd, nd -> n', x_ij, gradW_ij) / (r_ij + 1e-8 * h_i)**2
             fkq = torch.einsum('n..., n -> n...', fq, -2 * F_ab)
         elif laplacianMode == LaplacianMode.dot:
@@ -1028,7 +1092,7 @@ class Laplacian(torch.autograd.Function):
         ctx.laplacianMode = laplacianMode
         ctx.positiveDivergence = positiveDivergence
 
-        inputs_i = [quantity_a, densities_a, supports_a, correctionTerm_omega_i, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, correctionTerm_gradMatrix_i]
+        inputs_i = [quantity_a, densities_a, correctionTerm_omega_i, supports_a, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, correctionTerm_gradMatrix_i]
         inputs_j = [quantity_b, masses_b, densities_b, apparentArea_b, correctionTerm_omega_j, correctionTerm_A_j, correctionTerm_B_j, correctionTerm_gradA_j, correctionTerm_gradB_j]
         inputs_ij = [quantity_ab, x_ij, r_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j]
 
