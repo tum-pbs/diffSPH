@@ -13,14 +13,15 @@ from damping import apply_spectral_filter
 import shlex
 import subprocess
 
-def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFunction, integrator, nx, dt, nIter, kernel, config, export, plotInterval, exportImages = True):
+def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFunction, integrator, nx, dt, nIter, kernel, config, export, plotInterval, exportImages = True, umin= None, umax= None, vmin= None, vmax= None, prefix: str = None, timestamp: str = None):
 
-    timestamp = getCurrentTimestamp()
+    timestamp = getCurrentTimestamp() if timestamp is None else timestamp
+    prefix = 'waveEqn' if prefix is None else prefix
     if export:
         os.makedirs('output', exist_ok=True)
 
-        fileName = f"output/waveEqn_{timestamp}.h5"
-        print(f"Saving to {fileName}")
+        fileName = f"output/{prefix}_{timestamp}.h5"
+        # print(f"Saving to {fileName}")
 
         outFile = h5py.File(fileName, 'w')
 
@@ -45,9 +46,9 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
         simulationGroup.attrs['integrationScheme'] = config['integrationScheme'].name
         
     if exportImages:
-        imagePath = f'output/images/waveEqn_{timestamp}'
+        imagePath = f'output/{prefix}_{timestamp}/frames'
         os.makedirs(imagePath, exist_ok=True)
-        fig.savefig(f'{imagePath}/waveEqn_0000.png', dpi = 200)
+        fig.savefig(f'{imagePath}/frame_0000.png', dpi = 200)
     
     import numpy as np
     # Optional: Apply spectral filtering instead of (or in addition to) global damping
@@ -65,7 +66,13 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
         dudts = []
         dvdts = []
 
-    for i in tqdm(range(nIter), leave = False):
+        cs = []
+        damps = []
+
+    initialUMagnitude = torch.sum(torch.abs(waveSystem.waveState.u)).cpu().item()
+    # initialVMagnitude = torch.sum(torch.abs(waveSystem.waveState.v)).cpu().item()
+
+    for i in (tq := tqdm(range(nIter), leave = False)):
         waveSystem, updates =  integrator.function(
             waveSystem,
             dt = dt,
@@ -98,22 +105,36 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
             dudts.append(dudt)
             dvdts.append(dvdt)
 
-        if i % plotInterval == 0 or i == nIter - 1:
-            updatePlot(uPlot, particleState, waveSystem.waveState.u)
-            updatePlot(vPlot, particleState, waveSystem.waveState.v)
+            cs.append(waveSystem.waveState.c.view(-1,1).cpu().numpy())
+            damps.append(waveSystem.waveState.damping.view(-1,1).cpu().numpy())
 
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-            if exportImages:    
-                fig.savefig(f'{imagePath}/waveEqn_{i+1:04d}.png', dpi = 200)
-            
+        tq.set_description(f"Simulating: t = {t:.4f}s, |u| = {torch.sum(torch.abs(waveSystem.waveState.u)).cpu().item()/initialUMagnitude:.4f}")
+
+
+        if i % plotInterval == 0 or i == nIter - 1:
+
+            uPlot['vmin'] = umin
+            uPlot['vmax'] = umax
+            vPlot['vmin'] = vmin
+            vPlot['vmax'] = vmax
+            if exportImages or i == nIter - 1:
+                updatePlot(uPlot, particleState, waveSystem.waveState.u)
+                updatePlot(vPlot, particleState, waveSystem.waveState.v)
+
+                fig.canvas.draw()
+                fig.canvas.flush_events()
+                if exportImages:    
+                    fig.savefig(f'{imagePath}/frame_{i+1:04d}.png', dpi = 200)    
+    
+    fig.savefig(f'output/{prefix}_{timestamp}/final_state.png', dpi = 200)
     if exportImages:
+        # fig.savefig(f'output/{prefix}_{timestamp}/final_state.png', dpi = 200)
         output = 'timestamp'
         scale = 1280
 
-        command = '/usr/bin/ffmpeg -loglevel warning -hide_banner -y -framerate 50 -f image2 -pattern_type glob -i '+ imagePath + '/waveEqn_*.png -c:v libx264 -b:v 20M -r 50 ' + imagePath + '/output.mp4'
-        commandB = f'ffmpeg -loglevel warning -hide_banner -y -i {imagePath}/output.mp4 -vf "fps=50,scale={scale}:-1:flags=lanczos,palettegen" {imagePath}/palette.png'
-        commandC = f'ffmpeg -loglevel warning -hide_banner -y -i {imagePath}/output.mp4 -i {imagePath}/palette.png -filter_complex "fps=50,scale={scale}:-1:flags=lanczos[x];[x][1:v]paletteuse" {imagePath}/output.gif'
+        command = '/usr/bin/ffmpeg -loglevel warning -hide_banner -y -framerate 50 -f image2 -pattern_type glob -i '+ imagePath + '/frame_*.png -c:v libx264 -b:v 20M -r 50 ' + f'output/{prefix}_{timestamp}' + '/output.mp4'
+        commandB = f'ffmpeg -loglevel warning -hide_banner -y -i output/{prefix}_{timestamp}/output.mp4 -vf "fps=50,scale={scale}:-1:flags=lanczos,palettegen" {imagePath}/palette.png'
+        commandC = f'ffmpeg -loglevel warning -hide_banner -y -i output/{prefix}_{timestamp}/output.mp4 -i {imagePath}/palette.png -filter_complex "fps=50,scale={scale}:-1:flags=lanczos[x];[x][1:v]paletteuse" output/{prefix}_{timestamp}/output.gif'
 
         print('Creating video from  frames (frame count: {})'.format(len(os.listdir(imagePath))))
         subprocess.run(shlex.split(command))
@@ -128,10 +149,14 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
         dvdt_stacked = np.stack(dvdts, axis=0)
         u_stacked = np.stack(us, axis=0)
         v_stacked = np.stack(vs, axis=0)
+        c_stacked = np.stack(cs, axis=0)
+        damping_stacked = np.stack(damps, axis=0)
 
         simulationGroup.create_dataset('u', data = u_stacked)
         simulationGroup.create_dataset('v', data = v_stacked)
         simulationGroup.create_dataset('dudt', data = dudt_stacked)
         simulationGroup.create_dataset('dvdt', data = dvdt_stacked)
+        simulationGroup.create_dataset('c', data = c_stacked)
+        simulationGroup.create_dataset('damping', data = damping_stacked)
 
         outFile.close()

@@ -268,7 +268,7 @@ import h5py
 import datetime
 def getCurrentTimestamp():
     return datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
+import math
 def plotState(
         particleState,
         waveState: WaveEquationState,
@@ -281,24 +281,26 @@ def plotState(
     else:
         fig, axis = plt.subplots(1,2 , figsize=(10,5), squeeze=False, sharey=True)
 
+    nx = int(math.sqrt(particleState.positions.shape[0]))
+
     uPlot = visualizeParticles(
         fig, axis[0,0], particleState, config['domain'], waveState.u,
-        kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'RdBu_r', markerSize = markerSize, gridVisualization = plotGrid, scaling ='sym', midPoint = 0.0, gridResolution = 256)
+        kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'RdBu_r', markerSize = markerSize, gridVisualization = plotGrid, scaling ='sym', midPoint = 0.0, gridResolution = nx * 2)
 
     vPlot = visualizeParticles(
         fig, axis[0,1], particleState, config['domain'], waveState.v,
-        kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'RdBu_r', markerSize = markerSize, gridVisualization = plotGrid, scaling ='sym', midPoint = 0.0, gridResolution = 256)
+        kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'RdBu_r', markerSize = markerSize, gridVisualization = plotGrid, scaling ='sym', midPoint = 0.0, gridResolution = nx * 2)
     axis[0,0].set_title('u')
     axis[0,1].set_title('v')
 
     if plotCD:
         cPlot = visualizeParticles(
             fig, axis[1,0], particleState, config['domain'], waveState.c,
-            kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'magma', markerSize = markerSize, gridVisualization = plotGrid, gridResolution = 256)
+            kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'magma', markerSize = markerSize, gridVisualization = plotGrid, gridResolution =  nx * 2)
 
         dampPlot = visualizeParticles(
             fig, axis[1,1], particleState, config['domain'], waveState.damping,
-            kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'viridis', markerSize = markerSize, gridVisualization = plotGrid, gridResolution = 256)
+            kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'viridis', markerSize = markerSize, gridVisualization = plotGrid, gridResolution =  nx * 2)
         axis[1,0].set_title('c')
         axis[1,1].set_title('damping')
     else:
@@ -307,3 +309,45 @@ def plotState(
     fig.tight_layout()
 
     return fig, axis, uPlot, vPlot, cPlot, dampPlot
+
+
+
+def plotInitialState(
+    particleState, config,
+    uGrid, vGrid, cGrid, dampGrid,
+    uSourceGrid, cSourceGrid
+):
+    fig,axis = plt.subplots(2,3, figsize=(10,5), squeeze=False)
+
+    sc = axis[0,0].scatter(particleState.positions[:,0].cpu(), particleState.positions[:,1].cpu(), c=uSourceGrid.cpu(), s=1, cmap='tab10')
+    fig.colorbar(sc, ax=axis[0,0])
+    axis[0,0].set_title('u Source Grid')
+
+    sc = axis[1,0].scatter(particleState.positions[:,0].cpu(), particleState.positions[:,1].cpu(), c=cSourceGrid.cpu(), s=1, cmap='tab10')
+    fig.colorbar(sc, ax=axis[1,0])
+    axis[1,0].set_title('c Source Grid')
+
+    sc = axis[0,1].scatter(particleState.positions[:,0].cpu(), particleState.positions[:,1].cpu(), c=uGrid.cpu(), s=1, cmap='viridis')
+    fig.colorbar(sc, ax=axis[0,1])
+    axis[0,1].set_title('u Initial Condition')
+
+    sc = axis[0,2].scatter(particleState.positions[:,0].cpu(), particleState.positions[:,1].cpu(), c=vGrid.cpu(), s=1, cmap='cividis')
+    fig.colorbar(sc, ax=axis[0,2])
+    axis[0,2].set_title('v Initial Condition')
+
+    sc = axis[1,1].scatter(particleState.positions[:,0].cpu(), particleState.positions[:,1].cpu(), c=cGrid.cpu(), s=1, cmap='jet')
+    fig.colorbar(sc, ax=axis[1,1])
+    axis[1,1].set_title('c Grid')
+
+    sc = axis[1,2].scatter(particleState.positions[:,0].cpu(), particleState.positions[:,1].cpu(), c=dampGrid.cpu(), s=1, cmap='magma')
+    fig.colorbar(sc, ax=axis[1,2])
+    axis[1,2].set_title('Damping Grid')
+
+
+    for ax in axis.flatten():
+        ax.set_xlim(config['domain'].min[0].cpu().item(), config['domain'].max[0].cpu().item())
+        ax.set_ylim(config['domain'].min[1].cpu().item(), config['domain'].max[1].cpu().item())
+        ax.set_aspect('equal')
+    fig.tight_layout()
+
+    return fig, axis
