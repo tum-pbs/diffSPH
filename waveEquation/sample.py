@@ -42,10 +42,12 @@ import math
 
 def addNoise(
     particleState, config, neighbors,
-    grid, noiseAmplitude = 0.1, uMagnitude = 10,
+    grid, cSourceGrid, noiseAmplitude = 0.1, uMagnitude = 10,
     noiseType: str = 'perlin',
     smoothIter: int = 4,
     seed: int = 42,
+    octaves: int = 2,
+    baseFrequency: int = 2,
 ):
     u_min = torch.min(grid).cpu().item()
     u_max = torch.max(grid).cpu().item()
@@ -59,7 +61,7 @@ def addNoise(
     generator.manual_seed(seed)
 
     if noiseType == 'perlin':
-        uNoise = sampleVoronoi(particleState.positions, nx * 2, octaves = 2, baseFrequency = 2, seed = seed, config = config)
+        uNoise = sampleVoronoi(particleState.positions, nx * 2, octaves = octaves, baseFrequency = baseFrequency, seed = seed, config = config)
     elif noiseType == 'uniform':
         # uNoise = torch.rand_like(grid, generator=generator)
         uNoise = torch.rand_like(grid)
@@ -78,7 +80,12 @@ def addNoise(
     uNoiseNormalized = (uNoise - torch.min(uNoise)) / (torch.max(uNoise) - torch.min(uNoise))
     uNoise = uNoiseNormalized * (u_max - u_min) + u_min
 
-    return torch.lerp(grid, uNoise, noiseAmplitude)
+    grid_lerp = torch.lerp(grid, uNoise, noiseAmplitude)
+
+    # grid[~(cSourceGrid == -1)] = grid_lerp[~(cSourceGrid == -1)]
+    grid[(cSourceGrid == 0)] = grid_lerp[(cSourceGrid == 0)]
+
+    return grid
 
 
 def populateCGrid(cGrid, cSourceGrid, 

@@ -60,16 +60,16 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
     t = 0.0
     # plotInterval = 50
     if export:
-        us = []
-        vs = []
+        us = [waveSystem.waveState.u.view(-1,1).cpu().numpy()]
+        vs = [waveSystem.waveState.v.view(-1,1).cpu().numpy()]
 
         dudts = []
         dvdts = []
 
-        cs = []
-        damps = []
+        cs = [waveSystem.waveState.c.view(-1,1).cpu().numpy()]
+        damps = [waveSystem.waveState.damping.view(-1,1).cpu().numpy()]
 
-    initialUMagnitude = torch.sum(torch.abs(waveSystem.waveState.u)).cpu().item()
+    initialUMagnitude = torch.sum(waveSystem.waveState.u).cpu().item()
     # initialVMagnitude = torch.sum(torch.abs(waveSystem.waveState.v)).cpu().item()
 
     for i in (tq := tqdm(range(nIter), leave = False)):
@@ -92,23 +92,23 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
         t += dt
 
         if export:
-            dudt = []
-            dvdt = []
-            for j in range(len(updates)):
-                dudt.append(updates[j].dudt.cpu().numpy())
-                dvdt.append(updates[j].dvdt.cpu().numpy())
-            dudt = np.stack([torch.tensor(d) for d in dudt], axis=0).T
-            dvdt = np.stack([torch.tensor(d) for d in dvdt], axis=0).T
+            # dudt = []
+            # dvdt = []
+            # for j in range(len(updates)):
+            #     dudt.append(updates[j].dudt.cpu().numpy())
+            #     dvdt.append(updates[j].dvdt.cpu().numpy())
+            # dudt = np.stack([torch.tensor(d) for d in dudt], axis=0).T
+            # dvdt = np.stack([torch.tensor(d) for d in dvdt], axis=0).T
 
             us.append(waveSystem.waveState.u.view(-1,1).cpu().numpy())
             vs.append(waveSystem.waveState.v.view(-1,1).cpu().numpy())
-            dudts.append(dudt)
-            dvdts.append(dvdt)
+            # dudts.append(dudt)
+            # dvdts.append(dvdt)
 
             cs.append(waveSystem.waveState.c.view(-1,1).cpu().numpy())
             damps.append(waveSystem.waveState.damping.view(-1,1).cpu().numpy())
 
-        tq.set_description(f"Simulating: t = {t:.4f}s, |u| = {torch.sum(torch.abs(waveSystem.waveState.u)).cpu().item()/initialUMagnitude:.4f}")
+        tq.set_description(f"Simulating: t = {t:.4f}s, |u| = {torch.sum(waveSystem.waveState.u).cpu().item()/initialUMagnitude:.4f}(initial: {initialUMagnitude:.4f}), |v| = {torch.sum(torch.abs(waveSystem.waveState.v)).cpu().item():.4f}")
 
 
         if i % plotInterval == 0 or i == nIter - 1:
@@ -145,8 +145,8 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
         print('Done')
 
     if export:        
-        dudt_stacked = np.stack(dudts, axis=0)
-        dvdt_stacked = np.stack(dvdts, axis=0)
+        # dudt_stacked = np.stack(dudts, axis=0)
+        # dvdt_stacked = np.stack(dvdts, axis=0)
         u_stacked = np.stack(us, axis=0)
         v_stacked = np.stack(vs, axis=0)
         c_stacked = np.stack(cs, axis=0)
@@ -154,8 +154,8 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
 
         simulationGroup.create_dataset('u', data = u_stacked)
         simulationGroup.create_dataset('v', data = v_stacked)
-        simulationGroup.create_dataset('dudt', data = dudt_stacked)
-        simulationGroup.create_dataset('dvdt', data = dvdt_stacked)
+        # simulationGroup.create_dataset('dudt', data = dudt_stacked)
+        # simulationGroup.create_dataset('dvdt', data = dvdt_stacked)
         simulationGroup.create_dataset('c', data = c_stacked)
         simulationGroup.create_dataset('damping', data = damping_stacked)
 

@@ -215,14 +215,20 @@ def custom_backwards(fnForward, grad_output: torch.Tensor, i: torch.Tensor, j: t
         if input_i is not None:
             gradient_outputs_i[i_] = scatter_sum(gradients[index], i, dim_size=numRows, dim = 0) if gradients[index] is not None else None
             index += 1
+        else:
+            gradient_outputs_i[i_] = None
     for j_, input_j in enumerate(inputs_j):
         if input_j is not None:
             gradient_outputs_j[j_] = scatter_sum(gradients[index], j, dim_size=numCols, dim = 0) if gradients[index] is not None else None
             index += 1
+        else:
+            gradient_outputs_j[j_] = None
     for ij_, input_ij in enumerate(inputs_ij):
         if input_ij is not None:
             gradient_outputs_ij[ij_] = gradients[index]
             index += 1
+        else:
+            gradient_outputs_ij[ij_] = None
     
     # print('Gradients:', gradients)
     return gradient_outputs_i + gradient_outputs_j + gradient_outputs_ij

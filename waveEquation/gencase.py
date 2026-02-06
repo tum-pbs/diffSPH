@@ -93,6 +93,7 @@ def sampleC(particleState, config):
     cGrid[:] = 1
     return cGrid
 
+import math
 class InitialConditionType(Enum):
     OneCircle = auto() # One circle source in center
     TwoCircles = auto() # Two circle sources at top and bottom
@@ -548,6 +549,22 @@ def setupSphere(
     return cSourceGrid
 
 
+def sampleShape(particleState, config, radius, offset, preRotation, shape):
+    if shape == 'circle':
+        return sampleSphere(particleState, config, radius = radius, offset = offset, preRotation=preRotation)
+    elif shape == 'square':
+        return sampleBox(particleState, config, halfExtents=(radius, radius), offset = offset, preRotation=preRotation)
+    elif shape == 'box':
+        return sampleBox(particleState, config, halfExtents=(radius, radius), offset = offset, preRotation=preRotation)
+    elif shape == 'triangle':
+        return sampleEquilateralTriangle(particleState, config, sideLength = radius * 2, offset = offset, preRotation=preRotation)
+    elif shape == 'line':
+        return sampleBox(particleState, config, halfExtents=(radius, radius*0.1), offset = offset, preRotation=preRotation)
+    elif shape == 'vesica':
+        return sampleVesica(particleState, config, radius = radius, width = radius * 0.5, offset = offset, preRotation=preRotation)
+    else:
+        raise ValueError(f'Unknown shape: {shape}')
+
 def setupQuadrantSources(
         particleState, config,
         nx,
@@ -558,53 +575,46 @@ def setupQuadrantSources(
         topRight: bool = True,
         bottomLeft: bool = True,
         bottomRight: bool = True,
-        sourceShape: str = 'circle'
+        sourceShape: str = 'circle',
+        preRotation: float = 0.0
 ):
     if topLeft:
-        sphereTL = sampleSphere(
+        sphereTL = sampleShape(
             particleState, config,
             radius = radius,
             offset = (-0.5, 0.5),
-        ) if sourceShape == 'circle' else sampleBox(
-            particleState, config,
-            halfExtents = (radius, radius),
-            offset = (-0.5, 0.5),
+            preRotation = preRotation,
+            shape = sourceShape
         )
         uSourceGrid = torch.where(sphereTL <= 0, uSourceGrid, sourceCounter+1)
         sourceCounter += 1
     if topRight:    
-        sphereTR = sampleSphere(
+        sphereTR = sampleShape(
             particleState, config,
             radius = radius,
             offset = (0.5, 0.5),
-        ) if sourceShape == 'circle' else sampleBox(
-            particleState, config,
-            halfExtents = (radius, radius),
-            offset = (0.5, 0.5),
+            preRotation = preRotation,
+            shape = sourceShape
         )
         uSourceGrid = torch.where(sphereTR <= 0, uSourceGrid, sourceCounter+1)
         sourceCounter += 1
     if bottomLeft:    
-        sphereBL = sampleSphere(
+        sphereBL = sampleShape(
             particleState, config,
             radius = radius,
             offset = (-0.5, -0.5),
-        ) if sourceShape == 'circle' else sampleBox(
-            particleState, config,
-            halfExtents = (radius, radius),
-            offset = (-0.5, -0.5),
+            preRotation = preRotation,
+            shape = sourceShape
         )
         uSourceGrid = torch.where(sphereBL <= 0, uSourceGrid, sourceCounter+1)
         sourceCounter += 1
     if bottomRight:    
-        sphereBR = sampleSphere(
+        sphereBR = sampleShape(
             particleState, config,
             radius = radius,
             offset = (0.5, -0.5),
-        ) if sourceShape == 'circle' else sampleBox(
-            particleState, config,
-            halfExtents = (radius, radius),
-            offset = (0.5, -0.5),
+            preRotation = preRotation,
+            shape = sourceShape
         )
         uSourceGrid = torch.where(sphereBR <= 0, uSourceGrid, sourceCounter+1)
         sourceCounter += 1
@@ -620,53 +630,46 @@ def setupCrossSources(
         sourceBottom: bool = True,
         sourceLeft: bool = True,
         sourceRight: bool = True,
-        sourceShape: str = 'circle'
+        sourceShape: str = 'circle',
+        preRotation: float = 0.0
 ):
     if sourceTop:
-        sphereTop = sampleSphere(
+        sphereTop = sampleShape(
             particleState, config,
             radius = radius,
             offset = (0.0, 0.5),
-        ) if sourceShape == 'circle' else sampleBox(
-            particleState, config,
-            halfExtents = (radius, radius),
-            offset = (0.0, 0.5),
+            preRotation = preRotation,
+            shape = sourceShape
         )
         uSourceGrid = torch.where(sphereTop <= 0, uSourceGrid, sourceCounter+1)
         sourceCounter += 1
     if sourceBottom:    
-        sphereBottom = sampleSphere(
+        sphereBottom = sampleShape(
             particleState, config,
             radius = radius,
             offset = (0.0, -0.5),
-        ) if sourceShape == 'circle' else sampleBox(
-            particleState, config,
-            halfExtents = (radius, radius),
-            offset = (0.0, -0.5),
+            preRotation = preRotation,
+            shape = sourceShape
         )
         uSourceGrid = torch.where(sphereBottom <= 0, uSourceGrid, sourceCounter+1)
         sourceCounter += 1
     if sourceLeft:    
-        sphereLeft = sampleSphere(
+        sphereLeft = sampleShape(
             particleState, config,
             radius = radius,
             offset = (-0.5, 0.0),
-        ) if sourceShape == 'circle' else sampleBox(
-            particleState, config,
-            halfExtents = (radius, radius),
-            offset = (-0.5, 0.0),
+            preRotation = preRotation,
+            shape = sourceShape
         )
         uSourceGrid = torch.where(sphereLeft <= 0, uSourceGrid, sourceCounter+1)
         sourceCounter += 1
     if sourceRight:    
-        sphereRight = sampleSphere(
+        sphereRight = sampleShape(
             particleState, config,
             radius = radius,
             offset = (0.5, 0.0),
-        ) if sourceShape == 'circle' else sampleBox(
-            particleState, config,
-            halfExtents = (radius, radius),
-            offset = (0.5, 0.0),
+            preRotation = preRotation,
+            shape = sourceShape
         )
         uSourceGrid = torch.where(sphereRight <= 0, uSourceGrid, sourceCounter+1)
         sourceCounter += 1
@@ -678,16 +681,15 @@ def setupCenterSource(
         sourceCounter: int,
         uSourceGrid,
         radius: float = 0.1,
-        sourceShape: str = 'circle'
+        sourceShape: str = 'circle',
+        preRotation: float = 0.0,
 ):
-    centerSource = sampleSphere(
+    centerSource = sampleShape(
         particleState, config,
         radius = radius,
         offset = (0.0, 0.0),
-    ) if sourceShape == 'circle' else sampleBox(
-        particleState, config,
-        halfExtents = (radius, radius),
-        offset = (0.0, 0.0),
+        preRotation = preRotation,
+        shape = sourceShape
     )
     uSourceGrid = torch.where(centerSource <= 0, uSourceGrid, sourceCounter+1)
     sourceCounter += 1
@@ -700,14 +702,482 @@ def addRandomCircle(
         uSourceGrid,
         radiusRange: Tuple[float, float] = (0.05, 0.15),
         magnitude: float = 1.0,
+        sourceShape: str = 'circle',
+        preRotation: float = 0.0
 ):
     radius = torch.rand(1).item() * (radiusRange[1] - radiusRange[0]) + radiusRange[0]
     location = (torch.rand(2, device = particleState.positions.device) * 2 - 1) * (1 - radius)
-    sphere = sampleSphere(
+    sphere = sampleShape(
         particleState, config,
         radius = radius,
-        offset = (location[0].item(), location[1].item()),
+        offset = location,
+        preRotation = preRotation,
+        shape = sourceShape
     )
     uSourceGrid = torch.where(sphere <= 0, uSourceGrid, sourceCounter+1)
     sourceCounter += 1
     return uSourceGrid, sourceCounter
+
+
+
+
+
+'''
+Boundary Cases:
+Case 01: No boundaries
+Case 02: Central wall with no openings
+Case 03: Single slit
+Case 04: Double slit
+Case 05: Obstacle in the center with shape options
+Case 06: Obstacle in the center with seperation wall
+
+Parameters to vary:
+- Boundary speed (for transmissive boundaries such as the center obstacle and walls)
+- Obstacle shape (circle, square, triangle)
+- Obstacle size (radius for circle, side length for square, base/height for triangle, slit opening)
+- Offset position (2D offset from center)
+- Rotation angle (for non-rotationally symmetric shapes)
+
+Allows for random generation within ranges
+'''
+
+def genBoundaryCase_01(
+        particleState, config, nx,
+        cSourceGrid,
+        radii: Union[float, List[float]], rotations: Union[float, List[float]], offsets: Union[Tuple[float, float], List[Tuple[float, float]]],
+        shapes: Union[str, List[str]],
+        randomRadius: bool = False, randomRotation: bool = False, randomOffset: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15), rotationRange: Tuple[float, float] = (0, 2*np.pi), offsetRange: Tuple[Tuple[float, float], Tuple[float, float]] = ((-0.5, 0.5), (-0.5, 0.5))
+):
+    radiiList = convertArgs(radii, dtype=float, expectedLength=1)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=1)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=1)
+    offsetsList = convertTupleArgs(offsets, dtype=float, expectedLength=1)
+
+    return cSourceGrid
+
+def genBoundaryCase_02(
+        particleState, config, nx,
+        cSourceGrid,
+        radii: Union[float, List[float]], rotations: Union[float, List[float]], offsets: Union[Tuple[float, float], List[Tuple[float, float]]],
+        shapes: Union[str, List[str]],
+        randomRadius: bool = False, randomRotation: bool = False, randomOffset: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15), rotationRange: Tuple[float, float] = (0, 2*np.pi), offsetRange: Tuple[Tuple[float, float], Tuple[float, float]] = ((-0.5, 0.5), (-0.5, 0.5))
+):
+    radiiList = convertArgs(radii, dtype=float, expectedLength=1)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=1)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=1)
+    offsetsList = convertTupleArgs(offsets, dtype=float, expectedLength=1)
+
+    wall = sampleVerticalLine(
+        particleState, config,
+        thickness = 0.04,
+        offset = (0.0, 0.0),
+        preRotation = 0.0,
+        postRotation = 0.0
+    )
+
+    cSourceGrid = torch.where(wall <= 0, cSourceGrid, -1)
+    return cSourceGrid
+
+def genBoundaryCase_03(
+        particleState, config, nx,
+        cSourceGrid,
+        radii: Union[float, List[float]], rotations: Union[float, List[float]], offsets: Union[Tuple[float, float], List[Tuple[float, float]]],
+        shapes: Union[str, List[str]],
+        randomRadius: bool = False, randomRotation: bool = False, randomOffset: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15), rotationRange: Tuple[float, float] = (0, 2*np.pi), offsetRange: Tuple[Tuple[float, float], Tuple[float, float]] = ((-0.5, 0.5), (-0.5, 0.5))
+):
+    radiiList = convertArgs(radii, dtype=float, expectedLength=1)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=1)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=1)
+    offsetsList = convertTupleArgs(offsets, dtype=float, expectedLength=1)
+
+    if randomRadius:
+        for i in range(1):
+            radiiList[i] = torch.rand(1).item() * (radiusRange[1] - radiusRange[0]) + radiusRange[0]
+    if randomOffset:
+        for i in range(1):
+            offsetsList[i] = (
+                torch.rand(1).item() * (offsetRange[0][1] - offsetRange[0][0]) + offsetRange[0][0],
+                torch.rand(1).item() * (offsetRange[1][1] - offsetRange[1][0]) + offsetRange[1][0],
+            )
+    if randomRotation:
+        for i in range(1):
+            rotationsList[i] = torch.rand(1).item() * (rotationRange[1] - rotationRange[0]) + rotationRange[0]
+
+    cSourceGrid = setupSingleSlit(particleState, config, nx, cSourceGrid, slotWidth = radiiList[0], slotHeight = offsetsList[0][1])
+
+    return cSourceGrid
+
+def genBoundaryCase_04(
+        particleState, config, nx,
+        cSourceGrid,
+        radii: Union[float, List[float]], rotations: Union[float, List[float]], offsets: Union[Tuple[float, float], List[Tuple[float, float]]],
+        shapes: Union[str, List[str]],
+        randomRadius: bool = False, randomRotation: bool = False, randomOffset: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15), rotationRange: Tuple[float, float] = (0, 2*np.pi), offsetRange: Tuple[Tuple[float, float], Tuple[float, float]] = ((-0.5, 0.5), (-0.5, 0.5))
+):
+    radiiList = convertArgs(radii, dtype=float, expectedLength=2)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=2)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=2)
+    offsetsList = convertTupleArgs(offsets, dtype=float, expectedLength=2)
+
+    if randomRadius:
+        for i in range(2):
+            radiiList[i] = torch.rand(1).item() * (radiusRange[1] - radiusRange[0]) + radiusRange[0]
+    if randomOffset:
+        for i in range(2):
+            offsetsList[i] = (
+                torch.rand(1).item() * (offsetRange[0][1] - offsetRange[0][0]) + offsetRange[0][0],
+                torch.rand(1).item() * (offsetRange[1][1] - offsetRange[1][0]) + offsetRange[1][0],
+            )
+    if randomRotation:
+        for i in range(2):
+            rotationsList[i] = torch.rand(1).item() * (rotationRange[1] - rotationRange[0]) + rotationRange[0]
+
+    cSourceGrid = setupDoubleSlit(particleState, config, nx, cSourceGrid, slotWidths = [radiiList[0], radiiList[1]], slotHeights = [offsetsList[0][1], offsetsList[1][1]])
+
+    return cSourceGrid
+
+def genBoundaryCase_05(
+        particleState, config, nx,
+        cSourceGrid,
+        radii: Union[float, List[float]], rotations: Union[float, List[float]], offsets: Union[Tuple[float, float], List[Tuple[float, float]]],
+        shapes: Union[str, List[str]],
+        randomRadius: bool = False, randomRotation: bool = False, randomOffset: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15), rotationRange: Tuple[float, float] = (0, 2*np.pi), offsetRange: Tuple[Tuple[float, float], Tuple[float, float]] = ((-0.5, 0.5), (-0.5, 0.5))
+):
+    radiiList = convertArgs(radii, dtype=float, expectedLength=1)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=1)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=1)
+    offsetsList = convertTupleArgs(offsets, dtype=float, expectedLength=1)
+
+    if randomRadius:
+        for i in range(1):
+            radiiList[i] = torch.rand(1).item() * (radiusRange[1] - radiusRange[0]) + radiusRange[0]
+    if randomOffset:
+        for i in range(1):
+            offsetsList[i] = (
+                torch.rand(1).item() * (offsetRange[0][1] - offsetRange[0][0]) + offsetRange[0][0],
+                torch.rand(1).item() * (offsetRange[1][1] - offsetRange[1][0]) + offsetRange[1][0],
+            )
+    if randomRotation:
+        for i in range(1):
+            rotationsList[i] = torch.rand(1).item() * (rotationRange[1] - rotationRange[0]) + rotationRange[0]
+
+    shape = sampleShape(
+        particleState, config,
+        radius = radiiList[0],
+        offset = offsetsList[0],
+        preRotation = rotationsList[0],
+        shape = shapesList[0]
+    )
+    cSourceGrid = torch.where(shape <= 0, cSourceGrid, 1)
+    return cSourceGrid
+
+def genBoundaryCase_06(
+        particleState, config, nx,
+        cSourceGrid,
+        radii: Union[float, List[float]], rotations: Union[float, List[float]], offsets: Union[Tuple[float, float], List[Tuple[float, float]]],
+        shapes: Union[str, List[str]],
+        randomRadius: bool = False, randomRotation: bool = False, randomOffset: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15), rotationRange: Tuple[float, float] = (0, 2*np.pi), offsetRange: Tuple[Tuple[float, float], Tuple[float, float]] = ((-0.5, 0.5), (-0.5, 0.5))
+):
+    radiiList = convertArgs(radii, dtype=float, expectedLength=1)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=1)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=1)
+    offsetsList = convertTupleArgs(offsets, dtype=float, expectedLength=1)
+
+    if randomRadius:
+        for i in range(1):
+            radiiList[i] = torch.rand(1).item() * (radiusRange[1] - radiusRange[0]) + radiusRange[0]
+    if randomOffset:
+        for i in range(1):
+            offsetsList[i] = (
+                torch.rand(1).item() * (offsetRange[0][1] - offsetRange[0][0]) + offsetRange[0][0],
+                torch.rand(1).item() * (offsetRange[1][1] - offsetRange[1][0]) + offsetRange[1][0],
+            )
+    if randomRotation:
+        for i in range(1):
+            rotationsList[i] = torch.rand(1).item() * (rotationRange[1] - rotationRange[0]) + rotationRange[0]
+
+    wall = sampleVerticalLine(
+        particleState, config,
+        thickness = 0.04,
+        offset = (offsetsList[0][0], 0.0),
+        preRotation = 0.0,
+        postRotation = 0.0
+    )
+
+    shape = sampleShape(
+        particleState, config,
+        radius = radiiList[0],
+        offset = offsetsList[0],
+        preRotation = rotationsList[0],
+        shape = shapesList[0]
+    )
+    cSourceGrid = torch.where(wall <= 0, cSourceGrid, -1)
+    cSourceGrid = torch.where(shape <= 0, cSourceGrid, 1)
+    return cSourceGrid
+
+
+# cSourceGrid = setupDoubleSlit(particleState, config, nx, cSourceGrid, slotWidths = [0.05, 0.05], slotHeights = [0.2, -0.2])
+
+
+def convertArgs(
+        listOrValue: Union[float, int, str, List[float], List[int], List[str]],
+        dtype: type = float,
+        expectedLength: int = -1,
+):
+    if isinstance(listOrValue, list):
+        if expectedLength > 0 and len(listOrValue) != expectedLength:
+            if len(listOrValue) > expectedLength:
+                return [dtype(x) for x in listOrValue[:expectedLength]]
+            raise ValueError(f'Expected list of length {expectedLength}, but got {len(listOrValue)}')
+        return [dtype(x) for x in listOrValue]
+    else:
+        return [dtype(listOrValue)]
+    
+def convertTupleArgs(
+        listOrValue: Union[Tuple[float, float], Tuple[int, int], List[Tuple[float, float]], List[Tuple[int, int]]],
+        dtype: type = float,
+        expectedLength: int = -1,
+):
+    if isinstance(listOrValue, list):
+        if expectedLength > 0 and len(listOrValue) != expectedLength:
+            if len(listOrValue) > expectedLength:
+                return [tuple(dtype(x) for x in pair) for pair in listOrValue[:expectedLength]]
+            raise ValueError(f'Expected list of length {expectedLength}, but got {len(listOrValue)}')
+        
+        return [tuple(dtype(x) for x in pair) for pair in listOrValue]
+    else:
+        return [tuple(dtype(x) for x in listOrValue)]
+
+# Case 01: a single source at the center of the domain with no boundaries
+def genCase_01(
+        particleState, config,
+        nx, 
+        radii: Union[float, List[float]],
+        rotations: Union[float, List[float]],
+        shapes: Union[str, List[str]],
+        domainBox: bool = False,
+        domainDamping: bool = False,
+        randomRadius: bool = False,
+        randomRotation: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15),
+        rotationRange: Tuple[float, float] = (0, 2*np.pi),
+):
+    if randomRadius or randomRotation:
+        raise NotImplementedError('Random radius or rotation not implemented for genCase_01')
+    radiiList = convertArgs(radii, dtype=float)
+    rotationsList = convertArgs(rotations, dtype=float)
+    shapesList = convertArgs(shapes, dtype=str)
+
+    uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid = genInitial(
+        particleState, config,
+        nx,
+        domainBox = domainBox,
+        domainDamping = domainDamping,
+    )
+    sourceCounter = 0
+    uSourceGrid, sourceCounter = setupCenterSource(particleState, config, nx, 
+        uSourceGrid = uSourceGrid, sourceCounter = sourceCounter, radius = radiiList[0], sourceShape = shapesList[0], preRotation = rotationsList[0])
+
+    return uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid, sourceCounter
+
+# Case 02: One source at the top center and one at the bottom center
+def genCase_02(
+        particleState, config,
+        nx,
+        radii: Union[float, List[float]],
+        rotations: Union[float, List[float]],
+        shapes: Union[str, List[str]],
+        domainBox: bool = False,
+        domainDamping: bool = False,
+        randomRadius: bool = False,
+        randomRotation: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15),
+        rotationRange: Tuple[float, float] = (0, 2*np.pi),
+):
+    if randomRadius or randomRotation:
+        raise NotImplementedError('Random radius or rotation not implemented for genCase_02')
+    radiiList = convertArgs(radii, dtype=float, expectedLength=2)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=2)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=2)
+
+    uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid = genInitial(
+        particleState, config,
+        nx,
+        domainBox = domainBox,
+        domainDamping = domainDamping,
+    )
+    sourceCounter = 0
+    uSourceGrid, sourceCounter = setupCrossSources(particleState, config, nx, 
+                    sourceCounter, uSourceGrid, radius = radiiList[0], sourceShape = shapesList[0], sourceTop=True, sourceBottom = True, preRotation = rotationsList[0], sourceLeft=False, sourceRight=False)
+
+    return uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid, sourceCounter
+
+# Case 03: One source left center and one at the right center
+def genCase_03(
+        particleState, config,
+        nx,
+        radii: Union[float, List[float]],
+        rotations: Union[float, List[float]],
+        shapes: Union[str, List[str]],
+        domainBox: bool = False,
+        domainDamping: bool = False,
+        randomRadius: bool = False,
+        randomRotation: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15),
+        rotationRange: Tuple[float, float] = (0, 2*np.pi),
+):
+    if randomRadius or randomRotation:
+        raise NotImplementedError('Random radius or rotation not implemented for genCase_03')
+    radiiList = convertArgs(radii, dtype=float, expectedLength=2)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=2)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=2)
+
+    uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid = genInitial(
+        particleState, config,
+        nx,
+        domainBox = domainBox,
+        domainDamping = domainDamping,
+    )
+    sourceCounter = 0
+    uSourceGrid, sourceCounter = setupCrossSources(particleState, config, nx, 
+                    sourceCounter, uSourceGrid, radius = radiiList[0], sourceShape = shapesList[0], sourceTop=False, sourceBottom = False, preRotation = rotationsList[0], sourceLeft=True, sourceRight=True)
+
+    return uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid, sourceCounter
+
+# Case 04: multiple random sources
+def genCase_04(
+        particleState, config,
+        nx,
+        radii: Union[float, List[float]],
+        rotations: Union[float, List[float]],
+        shapes: Union[str, List[str]],
+        domainBox: bool = False,
+        domainDamping: bool = False,
+        randomRadius: bool = True,
+        randomRotation: bool = True,
+        radiusRange: Tuple[float, float] = (0.05, 0.15),
+        rotationRange: Tuple[float, float] = (0, 2*np.pi),
+):
+    if not randomRadius and not randomRotation:
+        raise NotImplementedError('Fixed radius and rotation not implemented for genCase_04')
+    numSources = len(shapes) if isinstance(shapes, list) else 1
+    radiiList = convertArgs(radii, dtype=float, expectedLength=2)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=2)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=2)
+
+
+    uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid = genInitial(
+        particleState, config,
+        nx,
+        domainBox = domainBox,
+        domainDamping = domainDamping,
+    )
+    sourceCounter = 0
+    for _ in range(numSources):
+        # Random radius
+        radius = torch.rand(1).item() * (radiusRange[1] - radiusRange[0]) + radiusRange[0]
+        # Random location
+        location = (torch.rand(2, device = particleState.positions.device) * 2 - 1) * (1 - radius)
+        rotationAngle = torch.rand(1).item() * (rotationRange[1] - rotationRange[0]) + rotationRange[0]
+        sphere = sampleShape(
+            particleState, config,
+            radius = radius,
+            offset = location,
+            preRotation = rotationAngle,
+            shape = shapesList[_ if numSources > 1 else 0]
+        )
+        uSourceGrid = torch.where(sphere <= 0, uSourceGrid, sourceCounter+1)
+        sourceCounter += 1
+    return uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid, sourceCounter
+
+# Case 05: No sources, only obstacles
+def genCase_05(
+        particleState, config,
+        nx,
+        radii: Union[float, List[float]],
+        rotations: Union[float, List[float]],
+        shapes: Union[str, List[str]],
+        domainBox: bool = False,
+        domainDamping: bool = False,
+        randomRadius: bool = False,
+        randomRotation: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15),
+        rotationRange: Tuple[float, float] = (0, 2*np.pi),
+):
+    uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid = genInitial(
+        particleState, config,
+        nx,
+        domainBox = domainBox,
+        domainDamping = domainDamping,
+    )
+    sourceCounter = 0
+    return uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid, sourceCounter
+
+# Top Left and Bottom Left sources from the quadrant corners
+def genCase_06(
+        particleState, config,
+        nx,
+        radii: Union[float, List[float]],
+        rotations: Union[float, List[float]],
+        shapes: Union[str, List[str]],
+        domainBox: bool = False,
+        domainDamping: bool = False,
+        randomRadius: bool = False,
+        randomRotation: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15),
+        rotationRange: Tuple[float, float] = (0, 2*np.pi),
+):
+    if randomRadius or randomRotation:
+        raise NotImplementedError('Random radius or rotation not implemented for genCase_06')
+    radiiList = convertArgs(radii, dtype=float, expectedLength=2)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=2)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=2)
+
+    uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid = genInitial(
+        particleState, config,
+        nx,
+        domainBox = domainBox,
+        domainDamping = domainDamping,
+    )
+    sourceCounter = 0
+    uSourceGrid, sourceCounter = setupQuadrantSources(particleState, config, nx, 
+                    sourceCounter, uSourceGrid, radius = radiiList[0], sourceShape = shapesList[0], topLeft=True, bottomLeft = True, preRotation = rotationsList[0], topRight=False, bottomRight=False)
+
+    return uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid, sourceCounter
+# Single Left source from the left boundary center
+def genCase_07(
+        particleState, config,
+        nx,
+        radii: Union[float, List[float]],
+        rotations: Union[float, List[float]],
+        shapes: Union[str, List[str]],
+        domainBox: bool = False,
+        domainDamping: bool = False,
+        randomRadius: bool = False,
+        randomRotation: bool = False,
+        radiusRange: Tuple[float, float] = (0.05, 0.15),
+        rotationRange: Tuple[float, float] = (0, 2*np.pi),
+):
+    if randomRadius or randomRotation:
+        raise NotImplementedError('Random radius or rotation not implemented for genCase_07')
+    radiiList = convertArgs(radii, dtype=float, expectedLength=1)
+    rotationsList = convertArgs(rotations, dtype=float, expectedLength=1)
+    shapesList = convertArgs(shapes, dtype=str, expectedLength=1)
+
+    uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid = genInitial(
+        particleState, config,
+        nx,
+        domainBox = domainBox,
+        domainDamping = domainDamping,
+    )
+    sourceCounter = 0
+    uSourceGrid, sourceCounter = setupCrossSources(particleState, config, nx, 
+                    sourceCounter, uSourceGrid, radius = radiiList[0], sourceShape = shapesList[0], sourceTop=False, sourceBottom = False, preRotation = rotationsList[0], sourceLeft=True, sourceRight=False)
+
+    return uGrid, vGrid, cGrid, dampGrid, uSourceGrid, cSourceGrid, sourceCounter

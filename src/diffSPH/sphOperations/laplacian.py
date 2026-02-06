@@ -1117,12 +1117,12 @@ class Laplacian(torch.autograd.Function):
 
         # Load saved variables
 
-        inputs_i = [quantity_a, densities_a, supports_a, correctionTerm_omega_i, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, correctionTerm_gradMatrix_i]
+        inputs_i = [quantity_a, densities_a, correctionTerm_omega_i, supports_a, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, correctionTerm_gradMatrix_i]
         inputs_j = [quantity_b, masses_b, densities_b, apparentArea_b, correctionTerm_omega_j, correctionTerm_A_j, correctionTerm_B_j, correctionTerm_gradA_j, correctionTerm_gradB_j]
         inputs_ij = [quantity_ab, x_ij, r_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j]
 
 
-        grad_quantity_a, grad_densities_a, grad_supports_a, grad_correctionTerm_omega_i, grad_correctionTerm_A_i, grad_correctionTerm_B_i, grad_correctionTerm_gradA_i, grad_correctionTerm_gradB_i, grad_correctionTerm_gradMatrix_i, grad_quantity_b, grad_masses_b, grad_densities_b, grad_apparentArea_b, grad_correctionTerm_omega_j, grad_correctionTerm_A_j, grad_correctionTerm_B_j, grad_correctionTerm_gradA_j, grad_correctionTerm_gradB_j, grad_quantity_ab, grad_x_ij, grad_r_ij, grad_W_i, grad_W_j, grad_gradW_i, grad_gradW_j, grad_H_i, grad_H_j  = custom_backwards(
+        grad_quantity_a, grad_densities_a, grad_correctionTerm_omega_i, grad_supports_a, grad_correctionTerm_A_i, grad_correctionTerm_B_i, grad_correctionTerm_gradA_i, grad_correctionTerm_gradB_i, grad_correctionTerm_gradMatrix_i, grad_quantity_b, grad_masses_b, grad_densities_b, grad_apparentArea_b, grad_correctionTerm_omega_j, grad_correctionTerm_A_j, grad_correctionTerm_B_j, grad_correctionTerm_gradA_j, grad_correctionTerm_gradB_j, grad_quantity_ab, grad_x_ij, grad_r_ij, grad_W_i, grad_W_j, grad_gradW_i, grad_gradW_j, grad_H_i, grad_H_j  = custom_backwards(
             laplacian_fn,
             grad_output,
             i, j, ctx.numRows, ctx.numCols,
@@ -1138,34 +1138,34 @@ class Laplacian(torch.autograd.Function):
             )
 
         return (
-            None, None, # positions_a, positions_b, 
-            grad_supports_a, None, # supports_a, supports_b, 
-            None, grad_masses_b, # masses_a, masses_b,
-            grad_densities_a, grad_densities_b, # densities_a, densities_b,
-            None, grad_apparentArea_b, # apparentArea_a, apparentArea_b,
-            grad_quantity_a, grad_quantity_b, grad_quantity_ab, # quantity_a, quantity_b, quantity_ab,
-            None, None, # i, j,
-            None, None, # numRows, numCols,
-            grad_r_ij, grad_x_ij, # r_ij, x_ij,
-            grad_W_i, grad_W_j, # W_i, W_j,
-            grad_gradW_i, grad_gradW_j, # gradW_i, gradW_j,
-            grad_H_i, grad_H_j, # H_i, H_j,
-            None, None, # gradH_i, gradH_j,
-            None, # operation,
-            None, # supportScheme,
-            None, # gradientMode,
-            None, # divergenceMode,
-            None, # laplacianMode,
-            None, # consistentDivergence,
-            None, # useApparentArea,
-            None, # correctionTerms,
-            grad_correctionTerm_A_i, grad_correctionTerm_A_j, # correctionTerm_A_i, correctionTerm_A_j,
-            grad_correctionTerm_B_i, grad_correctionTerm_B_j, # correctionTerm_B_i, correctionTerm_B_j,
-            grad_correctionTerm_gradA_i, grad_correctionTerm_gradA_j, # correctionTerm_gradA_i, correctionTerm_gradA_j,
-            grad_correctionTerm_gradB_i, grad_correctionTerm_gradB_j, # correctionTerm_gradB_i, correctionTerm_gradB_j,
-            grad_correctionTerm_gradMatrix_i, None, # correctionTerm_gradMatrix_i, correctionTerm_gradMatrix_j,
-            grad_correctionTerm_omega_i, grad_correctionTerm_omega_j, # correctionTerm_omega_i, correctionTerm_omega_j,
-            None # positiveDivergence
+            None, None, # positions_a, positions_b,            [0, 1]
+            grad_supports_a, None, # supports_a, supports_b,   [2, 3]
+            None, grad_masses_b, # masses_a, masses_b,         [4, 5]
+            grad_densities_a, grad_densities_b, # densities_a, densities_b,     [6, 7]
+            None, grad_apparentArea_b, # apparentArea_a, apparentArea_b,        [8, 9]
+            grad_quantity_a, grad_quantity_b, grad_quantity_ab, # quantity_a, quantity_b, quantity_ab, [10, 11, 12]
+            None, None, # i, j,                                 [13, 14]
+            None, None, # numRows, numCols,                     [15, 16]
+            grad_r_ij, grad_x_ij, # r_ij, x_ij,                 [17, 18]
+            grad_W_i, grad_W_j, # W_i, W_j,                     [19, 20]
+            grad_gradW_i, grad_gradW_j, # gradW_i, gradW_j,     [21, 22]
+            grad_H_i, grad_H_j, # H_i, H_j,                     [23, 24]
+            None, None, # gradH_i, gradH_j,                     [25, 26]
+            None, # operation,                                  [27]
+            None, # supportScheme,                              [28]
+            None, # gradientMode,                               [29]
+            None, # divergenceMode,                             [30]
+            None, # laplacianMode,                              [31]
+            None, # consistentDivergence,                       [32]
+            None, # useApparentArea,                            [33]
+            None, # correctionTerms,                            [34]
+            grad_correctionTerm_A_i, grad_correctionTerm_A_j, # correctionTerm_A_i, correctionTerm_A_j, [35, 36]
+            grad_correctionTerm_B_i, grad_correctionTerm_B_j, # correctionTerm_B_i, correctionTerm_B_j, [37, 38]
+            grad_correctionTerm_gradA_i, grad_correctionTerm_gradA_j, # correctionTerm_gradA_i, correctionTerm_gradA_j, [39, 40]
+            grad_correctionTerm_gradB_i, grad_correctionTerm_gradB_j, # correctionTerm_gradB_i, correctionTerm_gradB_j, [41, 42]
+            grad_correctionTerm_gradMatrix_i, None, # correctionTerm_gradMatrix_i, correctionTerm_gradMatrix_j, [43, 44]
+            grad_correctionTerm_omega_i, grad_correctionTerm_omega_j, # correctionTerm_omega_i, correctionTerm_omega_j, [45, 46]
+            None # positiveDivergence [47]
         )
             
             
