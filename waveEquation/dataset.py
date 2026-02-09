@@ -142,7 +142,7 @@ def getDatasetProperties(simFolder):
     files = os.listdir(simFolder)
     files = [f for f in files if f.endswith('.h5')]
     files.sort()
-    # print(files)
+    print(files)
 # 
     fileIndex = 0
     fileName = os.path.join(simFolder, files[fileIndex])

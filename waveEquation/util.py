@@ -351,3 +351,18 @@ def plotInitialState(
     fig.tight_layout()
 
     return fig, axis
+
+
+def copyWaveSystem(waveSystem):
+    waveStateCopy = WaveEquationState(
+        u = waveSystem.waveState.u.clone().detach(),
+        v = waveSystem.waveState.v.clone().detach(),
+        c = waveSystem.waveState.c.clone().detach(),
+        damping = waveSystem.waveState.damping.clone().detach(),
+    )
+    return WaveSystem(
+        systemState = waveSystem.systemState,
+        waveState = waveStateCopy,
+        neighborhood = waveSystem.neighborhood,
+        t = waveSystem.t
+    )

@@ -672,3 +672,125 @@ class SimpleGNN(torch.nn.Module):
         return vertexFeatures
         # return scatter_sum(term, i, dim = 0, dim_size = particles.positions.shape[0])[:,0]
 
+
+
+
+class SimpleGNN2(torch.nn.Module):
+    def __init__(self, hyperParameterDict):
+        super(SimpleGNN2, self).__init__()
+            
+        nodeFeatures = 3+ hyperParameterDict['featureCount']
+
+        self.edgeMLP1 = buildMLPwDict({
+            'layout': [hyperParameterDict['hiddenUnits']] * hyperParameterDict['hiddenLayers'],
+            'inputFeatures': nodeFeatures*2 + hyperParameterDict['coordinateFeatures'],
+            'output': hyperParameterDict['nodeFeatures'],
+            'preNorm': False,
+            'norm': False,
+            # 'channels': [1],
+            'activation': hyperParameterDict['activation'],
+            'gain': hyperParameterDict['gain'],
+        })
+        self.activationLayer = getActivationLayer(hyperParameterDict['activation'])
+        self.ScatterSumLayer = ScatterSumLayer()
+
+        numFeatures = nodeFeatures*2 + hyperParameterDict['coordinateFeatures'] + hyperParameterDict['nodeFeatures']*2
+
+        messagePassingVertexLayers = []
+        messagePassingEdgeLayers = []
+        for layer in range(hyperParameterDict['messagePassingLayers']):
+            vertexMLP = buildMLPwDict({
+                'layout': [hyperParameterDict['hiddenUnits']] * hyperParameterDict['hiddenLayers'],
+                'inputFeatures': hyperParameterDict['nodeFeatures'],
+                'output': hyperParameterDict['nodeFeatures'],
+                'preNorm': False,
+                'norm': False,
+                # 'channels': [1],
+                'activation': hyperParameterDict['activation'],
+                'gain': 1,
+            })
+            edgeMLP = buildMLPwDict({
+                'layout': [hyperParameterDict['hiddenUnits']] * hyperParameterDict['hiddenLayers'],
+                'inputFeatures': numFeatures,
+                'output': hyperParameterDict['output'] if layer == hyperParameterDict['messagePassingLayers'] - 1 and not hyperParameterDict['finalVertexMLP'] else hyperParameterDict['nodeFeatures'],
+                'preNorm': False,
+                'norm': False,
+                'activation': hyperParameterDict['activation'],
+                'gain': hyperParameterDict['gain'],
+            })
+            messagePassingVertexLayers.append(vertexMLP)
+            messagePassingEdgeLayers.append(edgeMLP)
+
+        self.messagePassingVertexLayers = torch.nn.ModuleList(messagePassingVertexLayers)
+        self.messagePassingEdgeLayers = torch.nn.ModuleList(messagePassingEdgeLayers)
+        self.hyperParameterDict = hyperParameterDict
+
+        if hyperParameterDict['finalVertexMLP'] == True:
+            self.finalVertexMLP = buildMLPwDict({
+                'layout': [hyperParameterDict['hiddenUnits']] * hyperParameterDict['hiddenLayers'],
+                'inputFeatures': hyperParameterDict['nodeFeatures'],
+                'output': hyperParameterDict['output'],
+                'preNorm': False,
+                'norm': False,
+                # 'channels': [1],
+                'activation': hyperParameterDict['activation'],
+                'gain': 1,
+                'bias': False
+            })
+        else:
+            self.finalVertexMLP = None
+
+    def forward(self, particles, neighbors, quantity):
+        i, j = neighbors[0].row, neighbors[0].col
+        hij = (particles.supports[i] + particles.supports[j]) / 2
+        encodedDistances = basisEncoderLayer(
+            neighbors[1].x_ij/ hij.view(-1, 1),
+            self.hyperParameterDict['basisTerms'], 
+            self.hyperParameterDict['basis'],
+            self.hyperParameterDict['encoderMode']
+        )
+
+        node_features = torch.cat([
+            particles.supports.view(-1,1),
+            particles.masses.view(-1,1),
+            particles.densities.view(-1,1),
+            quantity,]
+        , dim = -1)
+
+        edge_features = torch.cat([
+            encodedDistances ,
+            node_features[i],
+            node_features[j]
+        ], dim = -1)
+
+        processedEdges = runMLP(self.edgeMLP1, edge_features,1, verbose = False, checkpoint = True) * (particles.masses[j] / particles.densities[j]).view(-1, 1)
+
+        aggregatedEdges = scatter_sum(processedEdges, i, dim = 0, dim_size = particles.positions.shape[0])
+        for layer in range(self.hyperParameterDict['messagePassingLayers']):
+            vertexFeatures = runMLP(self.messagePassingVertexLayers[layer], aggregatedEdges, 1, verbose = False, checkpoint = True)
+            vertexFeatures = self.activationLayer(vertexFeatures)
+
+            newFeatures = torch.cat([
+                vertexFeatures,
+                particles.masses.view(-1, 1),
+                particles.supports.view(-1, 1),
+                particles.densities.view(-1,1),
+                quantity,
+            ], dim = -1)
+            v_j = newFeatures[j]
+            v_i = newFeatures[i]
+
+            v_ij = torch.cat([v_i, v_j, encodedDistances / hij.view(-1, 1)], dim = -1)
+
+            processedEdges = runMLP(self.messagePassingEdgeLayers[layer], v_ij, 1, verbose = False, checkpoint = True) * (particles.masses[j] / particles.densities[j]).view(-1, 1)
+            aggregatedEdges = scatter_sum(processedEdges, i, dim = 0, dim_size = particles.positions.shape[0])
+
+        if self.finalVertexMLP is not None:
+            vertexFeatures = runMLP(self.finalVertexMLP, aggregatedEdges, 1, verbose = False, checkpoint = True)
+            # vertexFeatures = self.activationLayer(vertexFeatures)
+        else:
+            vertexFeatures = aggregatedEdges
+            
+        return vertexFeatures
+        # return scatter_sum(term, i, dim = 0, dim_size = particles.positions.shape[0])[:,0]
+
