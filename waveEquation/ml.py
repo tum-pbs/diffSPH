@@ -538,14 +538,14 @@ class ScatterSumLayer(nn.Module):
         return scatter_sum(input, index, dim=dim, dim_size=dim_size)
     
 def runMLP_(mlp : torch.nn.Module, features : torch.Tensor, batches : int, verbose : bool = False):  
-    if verbose:
-        print(f'MLP {features.shape} -> {mlp[-1].out_features} features')
+    # if verbose:
+        # print(f'MLP {features.shape} -> {mlp[-1].out_features} features')
     transposedFeatures = features.view(batches,-1, *features.shape[1:])
     
     processedFeatures = mlp(transposedFeatures)
     processedFeatures = processedFeatures.view(-1, *processedFeatures.shape[2:])
-    if verbose:
-        print(f'\tFeatures: {processedFeatures.shape} [min: {torch.min(processedFeatures)}, max: {torch.max(processedFeatures)}, mean: {torch.mean(processedFeatures)}]')
+    # if verbose:
+        # print(f'\tFeatures: {processedFeatures.shape} [min: {torch.min(processedFeatures)}, max: {torch.max(processedFeatures)}, mean: {torch.mean(processedFeatures)}]')
     return processedFeatures
 
 def runMLP(mlp : torch.nn.Module, features : torch.Tensor, batches : int, verbose : bool = False, checkpoint : bool = True):      
