@@ -13,14 +13,16 @@ from damping import apply_spectral_filter
 import shlex
 import subprocess
 
-def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFunction, integrator, nx, dt, nIter, kernel, config, export, plotInterval, exportImages = True, umin= None, umax= None, vmin= None, vmax= None, prefix: str = None, timestamp: str = None):
+def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFunction, integrator, nx, dt, nIter, kernel, config, export, plotInterval, exportImages = True, umin= None, umax= None, vmin= None, vmax= None, prefix: str = None, timestamp: str = None, folderName: str = None):
 
     timestamp = getCurrentTimestamp() if timestamp is None else timestamp
     prefix = 'waveEqn' if prefix is None else prefix
     if export:
         os.makedirs('output', exist_ok=True)
 
-        fileName = f"output/{prefix}_{timestamp}.h5"
+        folderName = f'{prefix}_{timestamp}' if folderName is None else folderName
+        os.makedirs(f'output/{folderName}', exist_ok=True)
+        fileName = f"output/{folderName}.h5"
         # print(f"Saving to {fileName}")
 
         outFile = h5py.File(fileName, 'w')
@@ -46,7 +48,7 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
         simulationGroup.attrs['integrationScheme'] = config['integrationScheme'].name
         
     if exportImages:
-        imagePath = f'output/{prefix}_{timestamp}/frames'
+        imagePath = f'output/{folderName}/frames'
         os.makedirs(imagePath, exist_ok=True)
         fig.savefig(f'{imagePath}/frame_0000.png', dpi = 200)
     
@@ -107,6 +109,7 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
 
             cs.append(waveSystem.waveState.c.view(-1,1).cpu().numpy())
             damps.append(waveSystem.waveState.damping.view(-1,1).cpu().numpy())
+        initialUMagnitude += 1e-8
 
         tq.set_description(f"Simulating: t = {t:.4f}s, |u| = {torch.sum(waveSystem.waveState.u).cpu().item()/initialUMagnitude:.4f}(initial: {initialUMagnitude:.4f}), |v| = {torch.sum(torch.abs(waveSystem.waveState.v)).cpu().item():.4f}")
 
@@ -126,23 +129,23 @@ def runSimulation(fig, particleState, uPlot, vPlot, waveSystem, waveSystemFuncti
                 if exportImages:    
                     fig.savefig(f'{imagePath}/frame_{i+1:04d}.png', dpi = 200)    
     
-    fig.savefig(f'output/{prefix}_{timestamp}/final_state.png', dpi = 200)
+    fig.savefig(f'output/{folderName}/final_state.png', dpi = 200)
     if exportImages:
         # fig.savefig(f'output/{prefix}_{timestamp}/final_state.png', dpi = 200)
         output = 'timestamp'
         scale = 1280
 
-        command = '/usr/bin/ffmpeg -loglevel warning -hide_banner -y -framerate 50 -f image2 -pattern_type glob -i '+ imagePath + '/frame_*.png -c:v libx264 -b:v 20M -r 50 ' + f'output/{prefix}_{timestamp}' + '/output.mp4'
-        commandB = f'ffmpeg -loglevel warning -hide_banner -y -i output/{prefix}_{timestamp}/output.mp4 -vf "fps=50,scale={scale}:-1:flags=lanczos,palettegen" {imagePath}/palette.png'
-        commandC = f'ffmpeg -loglevel warning -hide_banner -y -i output/{prefix}_{timestamp}/output.mp4 -i {imagePath}/palette.png -filter_complex "fps=50,scale={scale}:-1:flags=lanczos[x];[x][1:v]paletteuse" output/{prefix}_{timestamp}/output.gif'
+        command = '/usr/bin/ffmpeg -loglevel warning -hide_banner -y -framerate 50 -f image2 -pattern_type glob -i '+ imagePath + '/frame_*.png -c:v libx264 -b:v 20M -r 50 ' + f'output/{folderName}.mp4'
+        commandB = f'ffmpeg -loglevel warning -hide_banner -y -i output/{folderName}.mp4 -vf "fps=50,scale={scale}:-1:flags=lanczos,palettegen" {imagePath}/palette.png'
+        commandC = f'ffmpeg -loglevel warning -hide_banner -y -i output/{folderName}.mp4 -i {imagePath}/palette.png -filter_complex "fps=50,scale={scale}:-1:flags=lanczos[x];[x][1:v]paletteuse" output/{folderName}.gif'
 
-        print('Creating video from  frames (frame count: {})'.format(len(os.listdir(imagePath))))
+        # print('Creating video from  frames (frame count: {})'.format(len(os.listdir(imagePath))))
         subprocess.run(shlex.split(command))
-        print('Creating gif palette')
+        # print('Creating gif palette')
         subprocess.run(shlex.split(commandB))
-        print('Creating gif')
+        # print('Creating gif')
         subprocess.run(shlex.split(commandC))
-        print('Done')
+        # print('Done')
 
     if export:        
         # dudt_stacked = np.stack(dudts, axis=0)

@@ -285,11 +285,11 @@ def plotState(
 
     uPlot = visualizeParticles(
         fig, axis[0,0], particleState, config['domain'], waveState.u,
-        kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'RdBu_r', markerSize = markerSize, gridVisualization = plotGrid, scaling ='sym', midPoint = 0.0, gridResolution = nx * 2)
+        kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'managua', markerSize = markerSize, gridVisualization = plotGrid, scaling ='sym', midPoint = 0.0, gridResolution = nx * 2)
 
     vPlot = visualizeParticles(
         fig, axis[0,1], particleState, config['domain'], waveState.v,
-        kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'RdBu_r', markerSize = markerSize, gridVisualization = plotGrid, scaling ='sym', midPoint = 0.0, gridResolution = nx * 2)
+        kernel, which = 'both', visualizeBoth = True, cbar = True, cmap = 'vanimo', markerSize = markerSize, gridVisualization = plotGrid, scaling ='sym', midPoint = 0.0, gridResolution = nx * 2)
     axis[0,0].set_title('u')
     axis[0,1].set_title('v')
 
