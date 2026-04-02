@@ -935,8 +935,8 @@ def laplacian_fn(
             raise ValueError("fkq is None")
     
         if positiveDivergence:
-            dot = torch.einsum('n...d, nd -> n...d', fq, x_ij / (r_ij + 1e-8 * h_i).view(-1,1)**2)
-            fkq = torch.where(dot < 0, torch.zeros_like(fkq), fkq)
+            dot = torch.einsum('n...d, nd -> n...', fq, x_ij / (r_ij + 1e-8 * h_i).view(-1,1)**2)
+            fkq = torch.where(dot.view(-1,1).expand(-1, fkq.shape[1]) < 0, torch.zeros_like(fkq), fkq)
             # print("Positive divergence")
 
         # fkq = torch.einsum('n..., n -> n...', foklq, factor)
@@ -1028,7 +1028,7 @@ class Laplacian(torch.autograd.Function):
         ctx.laplacianMode = laplacianMode
         ctx.positiveDivergence = positiveDivergence
 
-        inputs_i = [quantity_a, densities_a, supports_a, correctionTerm_omega_i, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, correctionTerm_gradMatrix_i]
+        inputs_i = [quantity_a, densities_a, correctionTerm_omega_i, supports_a, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, correctionTerm_gradMatrix_i]
         inputs_j = [quantity_b, masses_b, densities_b, apparentArea_b, correctionTerm_omega_j, correctionTerm_A_j, correctionTerm_B_j, correctionTerm_gradA_j, correctionTerm_gradB_j]
         inputs_ij = [quantity_ab, x_ij, r_ij, W_i, W_j, gradW_i, gradW_j, H_i, H_j]
 
