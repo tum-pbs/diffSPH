@@ -175,7 +175,7 @@ from diffSPH.enums import KernelCorrectionScheme
 from typing import List
 from diffSPH.util import KernelTerms
 # from diffSPH.neighborhood 
-from diffSPH.sphOperations.opUtil import evalSupport, evalPrecomputed,get_qi,  get_qj, get_qs, correctedKernel_CRK, correctedKernelGradient_CRK
+from diffSPH.sphOperations.opUtil import correctedKernel_CRK_ij, evalSupport, evalPrecomputed,get_qi,  get_qj, get_qs, correctedKernel_CRK, correctedKernelGradient_CRK
 
 def interpolate_precomputed(
         positions_a : torch.Tensor,
@@ -246,6 +246,7 @@ def interpolate_precomputed(
 
         k = m_j / rho_j * W_ij
         if useApparentArea and apparentArea_b is not None:
+            # print("Using apparent area in interpolation")
             k = apparentArea_b[j] * W_ij
 
         q_j = quantity_ab if quantity_ab is not None else get_qj((quantity_a, quantity_b), i, j, (None, None))
@@ -273,9 +274,14 @@ def interpolate_fn(
     W_ij = evaluateKernel_(W_i, W_j, supportScheme, crkCorrection, i, j, x_ij, A_i, B_i)
     q_j_ = q_j if q_ij is None else q_ij
 
+    # if crkCorrection:
+    #     print("Applying CRK correction in interpolation")
+    #     W_ij = correctedKernel_CRK_ij(i, j, A_i, B_i, x_ij, W_ij, False)
+
     k = m_j / rho_j * W_ij
     if useApparentArea and apparentArea_b is not None:
-        k = apparentArea_b[j] * W_ij
+        print("Using apparent area in interpolation")
+        k = apparentArea_b * W_ij
 
     kq = torch.einsum('n..., n -> n...', q_j_, k)
 

@@ -1079,7 +1079,7 @@ def evalKernel(PrecomputedKernel: PrecomputedNeighborhood, supportScheme: Suppor
         elif supportScheme == SupportScheme.SuperSymmetric:
             return (PrecomputedKernel.W_i + PrecomputedKernel.W_j) / 2
         else:
-            raise ValueError('Invalid support scheme')
+            raise ValueError('Invalid support scheme {}'.format(supportScheme))
     else:
         if supportScheme == SupportScheme.Scatter:
             return PrecomputedKernel.W_j, PrecomputedKernel.W_j
@@ -1091,7 +1091,7 @@ def evalKernel(PrecomputedKernel: PrecomputedNeighborhood, supportScheme: Suppor
         elif supportScheme == SupportScheme.SuperSymmetric:
             return PrecomputedKernel.W_i, PrecomputedKernel.W_j
         else:
-            raise ValueError('Invalid support scheme')
+            raise ValueError('Invalid support scheme {}'.format(supportScheme))
 def evalKernelGradient(PrecomputedKernel: PrecomputedNeighborhood, supportScheme: SupportScheme, combined = True):
     if combined:
         if supportScheme == SupportScheme.Scatter:
@@ -1103,7 +1103,7 @@ def evalKernelGradient(PrecomputedKernel: PrecomputedNeighborhood, supportScheme
         elif supportScheme == SupportScheme.SuperSymmetric:
             return (PrecomputedKernel.gradW_i + PrecomputedKernel.gradW_j) / 2
         else:
-            raise ValueError('Invalid support scheme')
+            raise ValueError('Invalid support scheme {}'.format(supportScheme))
     else:
         if supportScheme == SupportScheme.Scatter:
             return PrecomputedKernel.gradW_j, PrecomputedKernel.gradW_j
@@ -1115,7 +1115,7 @@ def evalKernelGradient(PrecomputedKernel: PrecomputedNeighborhood, supportScheme
         elif supportScheme == SupportScheme.SuperSymmetric:
             return PrecomputedKernel.gradW_i, PrecomputedKernel.gradW_j
         else:
-            raise ValueError('Invalid support scheme')
+            raise ValueError('Invalid support scheme {}'.format(supportScheme))
 def evalKernelHessian(PrecomputedKernel: PrecomputedNeighborhood, supportScheme: SupportScheme, combined = True):
     if combined:
         if supportScheme == SupportScheme.Scatter:
@@ -1127,7 +1127,7 @@ def evalKernelHessian(PrecomputedKernel: PrecomputedNeighborhood, supportScheme:
         elif supportScheme == SupportScheme.SuperSymmetric:
             return (PrecomputedKernel.H_i + PrecomputedKernel.H_j) / 2
         else:
-            raise ValueError('Invalid support scheme')
+            raise ValueError('Invalid support scheme {}'.format(supportScheme))
     else:
         if supportScheme == SupportScheme.Scatter:
             return PrecomputedKernel.H_j, PrecomputedKernel.H_j
@@ -1139,7 +1139,7 @@ def evalKernelHessian(PrecomputedKernel: PrecomputedNeighborhood, supportScheme:
         elif supportScheme == SupportScheme.SuperSymmetric:
             return PrecomputedKernel.H_i, PrecomputedKernel.H_j
         else:
-            raise ValueError('Invalid support scheme')
+            raise ValueError('Invalid support scheme {}'.format(supportScheme))
 def evalKernelDkDh(PrecomputedKernel: PrecomputedNeighborhood, supportScheme: SupportScheme, combined = True):
     if combined:
         if supportScheme == SupportScheme.Scatter:
@@ -1151,7 +1151,7 @@ def evalKernelDkDh(PrecomputedKernel: PrecomputedNeighborhood, supportScheme: Su
         elif supportScheme == SupportScheme.SuperSymmetric:
             return (PrecomputedKernel.ddh_W_i + PrecomputedKernel.ddh_W_j) / 2
         else:
-            raise ValueError('Invalid support scheme')
+            raise ValueError('Invalid support scheme {}'.format(supportScheme))
     else:
         if supportScheme == SupportScheme.Scatter:
             return PrecomputedKernel.ddh_W_j, PrecomputedKernel.ddh_W_j
@@ -1163,7 +1163,7 @@ def evalKernelDkDh(PrecomputedKernel: PrecomputedNeighborhood, supportScheme: Su
         elif supportScheme == SupportScheme.SuperSymmetric:
             return PrecomputedKernel.ddh_W_i, PrecomputedKernel.ddh_W_j
         else:
-            raise ValueError('Invalid support scheme')
+            raise ValueError('Invalid support scheme {}'.format(supportScheme))
         
 
 

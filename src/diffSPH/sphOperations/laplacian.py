@@ -870,9 +870,10 @@ def laplacian_fn(
             else:
                 factor = apparentArea_b[j] * rho_i * rho_j
 
-        q_ij: Optional[torch.Tensor] = None
+        # q_ij: Optional[torch.Tensor] = None
         if q_ij is not None:
-            q_ij = q_ij
+            # q_ij = q_ij
+            pass
         else:
             if gradientMode == GradientMode.Naive:
                 q_j = get_q(q_j_, omega_j, omegaCorrection)

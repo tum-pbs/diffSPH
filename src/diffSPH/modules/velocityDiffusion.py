@@ -62,15 +62,19 @@ def computeViscosity_Monaghan1997(
 
     v_ij = particles.velocities[j] - particles.velocities[i]
 
+    pi = (Pi_ij * particles.densities[j]).view(-1,1) * v_ij
+
+    # print("Pi_ij: ", Pi_ij.shape, "v_ij: ", v_ij.shape, "pi: ", pi.shape)
+
     return SPHOperation(
         particles,
-        quantity = (Pi_ij * particles.densities[j]).view(-1,1) * v_ij,
+        quantity = pi,
         kernel = kernel,
         neighborhood = neighborhood[0],
         kernelValues = neighborhood[1],
         operation=Operation.Laplacian,
         supportScheme = supportScheme,
-        gradientMode = GradientMode.Difference,
+        gradientMode = GradientMode.Naive,
         laplacianMode= LaplacianMode.default,
         positiveDivergence=False
     )
