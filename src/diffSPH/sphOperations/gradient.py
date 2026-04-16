@@ -568,9 +568,9 @@ def gradient_fn(
         factor = m_j / rho_j if gradientMode != GradientMode.Symmetric else m_j * rho_i
         if useApparentArea and apparentArea_b is not None:
             if gradientMode != GradientMode.Symmetric:
-                factor = apparentArea_b[j]
+                factor = apparentArea_b
             else:
-                factor = apparentArea_b[j] * rho_i * rho_j
+                factor = apparentArea_b * rho_i * rho_j
 
 
         if q_ij is None:

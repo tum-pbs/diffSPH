@@ -275,7 +275,7 @@ def interpolate_fn(
 
     k = m_j / rho_j * W_ij
     if useApparentArea and apparentArea_b is not None:
-        k = apparentArea_b[j] * W_ij
+        k = apparentArea_b * W_ij
 
     kq = torch.einsum('n..., n -> n...', q_j_, k)
 

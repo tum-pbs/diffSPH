@@ -70,7 +70,7 @@ def computeViscosity_Monaghan1997(
         kernelValues = neighborhood[1],
         operation=Operation.Laplacian,
         supportScheme = supportScheme,
-        gradientMode = GradientMode.Difference,
+        gradientMode = GradientMode.Naive,
         laplacianMode= LaplacianMode.default,
         positiveDivergence=False
     )

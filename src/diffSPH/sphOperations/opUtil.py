@@ -70,7 +70,7 @@ def correctedKernel_CRK(i, j, A: Optional[torch.Tensor], B: Optional[torch.Tenso
         raise ValueError("A or B is None, they are required for CRK correction")
     index = j if xji else i
     fac = -1 if xji else 1
-    prod = torch.einsum('...i, ...j -> ...', B[index], fac * x_ij)
+    prod = torch.einsum('...i, ...i -> ...', B[index], fac * x_ij)
     return A[index] * (1 + prod) * W_ij
 
 
@@ -95,17 +95,17 @@ def correctedKernel_CRK_ij(i, j, A_i: Optional[torch.Tensor], B_i: Optional[torc
     if A_i is None or B_i is None:
         raise ValueError("A or B is None, they are required for CRK correction")
     # index = i
-    fac = 1
-    prod = torch.einsum('...i, ...j -> ...', B_i, fac * x_ij)
+    fac = -1 if xji else 1
+    prod = torch.einsum('...i, ...i -> ...', B_i, fac * x_ij)
     return A_i * (1 + prod) * W_ij
 
-def correctedKernel_CRK_ij(i, j, A_j: Optional[torch.Tensor], B_j: Optional[torch.Tensor], x_ij, W_ij, xji: bool = False):
-    if A_j is None or B_j is None:
-        raise ValueError("A or B is None, they are required for CRK correction")
-    # index = j
-    fac = -1
-    prod = torch.einsum('...i, ...j -> ...', B_j, fac * x_ij)
-    return A_j * (1 + prod) * W_ij
+# def correctedKernel_CRK_ij(i, j, A_j: Optional[torch.Tensor], B_j: Optional[torch.Tensor], x_ij, W_ij, xji: bool = False):
+#     if A_j is None or B_j is None:
+#         raise ValueError("A or B is None, they are required for CRK correction")
+#     # index = j
+#     fac = -1
+#     prod = torch.einsum('...i, ...j -> ...', B_j, fac * x_ij)
+#     return A_j * (1 + prod) * W_ij
 
 def evaluateKernel_(W_i: torch.Tensor, W_j: torch.Tensor, 
             supportScheme: SupportScheme, 
@@ -144,6 +144,18 @@ def correctedKernelGradient_CRK_ji(i, j, A_j: Optional[torch.Tensor], B_j: Optio
 
     return firstTerm + secondTerm + thirdTerm
 
+def correctedGradientKernel_(A, B, gradA, gradB, W_ij, gradW_ij, x_ij):
+    # dotProd = lambda a, b: torch.einsum('...i, ...j -> ...', a, b)
+    # dot_ii = lambda a, b: torch.einsum('...i, ...i -> ...', a, b)
+    fac = 1
+
+    term1 = A.view(-1,1) * B * W_ij.view(-1,1)
+    term2 = fac * (A * (1 + fac * torch.einsum('...i, ...i -> ...', B, x_ij))).view(-1,1) * gradW_ij
+    term3 = (1 + fac * torch.einsum('...i, ...i -> ...', B, x_ij)).view(-1,1) * W_ij.view(-1,1) * gradA
+    term4 = fac * A.view(-1,1) * (torch.einsum('...a,...ca -> ...c', x_ij, gradB)) * W_ij.view(-1,1)
+
+    return term1 + term2 + term3 + term4
+
 def evaluateKernelGradient_(
         W_i: torch.Tensor, W_j: torch.Tensor,
         gradW_i: torch.Tensor, gradW_j: torch.Tensor,
@@ -160,10 +172,15 @@ def evaluateKernelGradient_(
     if crkCorrection:
         W_ij = (W_i + W_j) / 2
         gradW_ij = (gradW_i + gradW_j) / 2
+        if correctionTerm_A_i is None or correctionTerm_B_i is None or correctionTerm_gradA_i is None or correctionTerm_gradB_i is None:
+            raise ValueError("Correction terms for particle i cannot be None when CRK correction is enabled")
+        else:
+            return correctedGradientKernel_(correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, W_ij, gradW_ij, x_ij)
 
-        gradW_ij_CRK = correctedKernelGradient_CRK_ij(i, j, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, x_ij, W_ij, gradW_ij, False)
-        gradW_ij_CRK += correctedKernelGradient_CRK_ji(i, j, correctionTerm_A_j, correctionTerm_B_j, correctionTerm_gradA_j, correctionTerm_gradB_j, x_ij, W_ij, gradW_ij, True)
-        gradW_ij = (gradW_ij_CRK - gradW_ij_CRK) / 2
+
+        # gradW_ij_CRK = correctedKernelGradient_CRK_ij(i, j, correctionTerm_A_i, correctionTerm_B_i, correctionTerm_gradA_i, correctionTerm_gradB_i, x_ij, W_ij, gradW_ij, False)
+        # gradW_ij_CRK += correctedKernelGradient_CRK_ji(i, j, correctionTerm_A_j, correctionTerm_B_j, correctionTerm_gradA_j, correctionTerm_gradB_j, x_ij, W_ij, gradW_ij, True)
+        # gradW_ij = (gradW_ij_CRK - gradW_ij_CRK) / 2
 
     return gradW_ij
 
