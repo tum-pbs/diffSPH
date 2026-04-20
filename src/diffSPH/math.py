@@ -22,7 +22,7 @@ def pinv2x2(M):
         S2 = torch.sqrt((a**2 + b**2 - c**2 - d**2)**2 + 4* (a * c + b *d)**2)
 
         o1 = torch.sqrt((S1 + S2) / 2)
-        o2 = torch.sqrt(torch.clamp(S1 - S2 + 1e-7, min = 1e-7) / 2)
+        o2 = torch.sqrt(torch.clamp(S1 - S2, min = 1e-9) / 2)
 
         phi = 0.5 * torch.atan2(2 * a * b + 2 * c * d, a**2 - b**2 + c**2 - d**2)
         cosPhi = torch.cos(phi)
@@ -40,8 +40,8 @@ def pinv2x2(M):
         o1_1 = torch.zeros_like(o1)
         o2_1 = torch.zeros_like(o2)
 
-        o1_1[torch.abs(o1) > 1e-5] = 1 / o1[torch.abs(o1) > 1e-5] 
-        o2_1[torch.abs(o2) > 1e-5] = 1 / o2[torch.abs(o2) > 1e-5] 
+        o1_1[torch.abs(o1) > 1e-5] = 1 / o1[torch.abs(o1) > 1e-7] 
+        o2_1[torch.abs(o2) > 1e-5] = 1 / o2[torch.abs(o2) > 1e-7] 
         o = torch.vstack((o1_1, o2_1))
         S_1 = torch.diag_embed(o.mT, dim1 = 2, dim2 = 1)
 
